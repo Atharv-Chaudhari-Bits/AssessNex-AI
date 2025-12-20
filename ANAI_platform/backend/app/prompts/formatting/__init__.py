@@ -1,0 +1,103 @@
+"""
+Formatting prompts package.
+
+Contains prompts for:
+- Mermaid diagrams (all types)
+- ASCII art and tables
+- LaTeX/Math expressions
+- Code formatting
+- Output quality control
+"""
+
+from backend.app.prompts.formatting.mermaid_prompts import (
+    MERMAID_SYSTEM_PROMPT,
+    MERMAID_FLOWCHART_PROMPT,
+    MERMAID_SEQUENCE_PROMPT,
+    MERMAID_CLASS_PROMPT,
+    MERMAID_STATE_PROMPT,
+    MERMAID_ER_PROMPT,
+    MERMAID_GANTT_PROMPT,
+    MERMAID_PIE_PROMPT,
+    MERMAID_MINDMAP_PROMPT,
+    MERMAID_VALIDATION_PROMPT,
+)
+
+from backend.app.prompts.formatting.ascii_prompts import (
+    ASCII_SYSTEM_PROMPT,
+    ASCII_FLOWCHART_PROMPT,
+    ASCII_BOX_PROMPT,
+    ASCII_TABLE_PROMPT,
+    ASCII_TREE_PROMPT,
+    ASCII_VALIDATION_PROMPT,
+)
+
+from backend.app.prompts.formatting.latex_prompts import (
+    LATEX_SYSTEM_PROMPT,
+    LATEX_INLINE_PROMPT,
+    LATEX_BLOCK_PROMPT,
+    LATEX_MATH_PROMPT,
+    LATEX_EQUATION_PROMPT,
+    LATEX_VALIDATION_PROMPT,
+)
+
+from backend.app.prompts.formatting.code_prompts import (
+    CODE_SYSTEM_PROMPT,
+    CODE_PYTHON_PROMPT,
+    CODE_JAVASCRIPT_PROMPT,
+    CODE_JAVA_PROMPT,
+    CODE_SQL_PROMPT,
+    CODE_EXPLAINED_PROMPT,
+    CODE_VALIDATION_PROMPT,
+)
+
+from backend.app.prompts.formatting.orchestration_prompts import (
+    ORCHESTRATOR_SYSTEM_PROMPT,
+    CONTENT_DETECTION_PROMPT,
+    SUPERVISOR_SYSTEM_PROMPT,
+    VALIDATION_PROMPT,
+    QUALITY_CONTROL_PROMPT,
+    REGENERATION_PROMPT,
+)
+
+__all__ = [
+    # Mermaid prompts
+    "MERMAID_SYSTEM_PROMPT",
+    "MERMAID_FLOWCHART_PROMPT",
+    "MERMAID_SEQUENCE_PROMPT",
+    "MERMAID_CLASS_PROMPT",
+    "MERMAID_STATE_PROMPT",
+    "MERMAID_ER_PROMPT",
+    "MERMAID_GANTT_PROMPT",
+    "MERMAID_PIE_PROMPT",
+    "MERMAID_MINDMAP_PROMPT",
+    "MERMAID_VALIDATION_PROMPT",
+    # ASCII prompts
+    "ASCII_SYSTEM_PROMPT",
+    "ASCII_FLOWCHART_PROMPT",
+    "ASCII_BOX_PROMPT",
+    "ASCII_TABLE_PROMPT",
+    "ASCII_TREE_PROMPT",
+    "ASCII_VALIDATION_PROMPT",
+    # LaTeX prompts
+    "LATEX_SYSTEM_PROMPT",
+    "LATEX_INLINE_PROMPT",
+    "LATEX_BLOCK_PROMPT",
+    "LATEX_MATH_PROMPT",
+    "LATEX_EQUATION_PROMPT",
+    "LATEX_VALIDATION_PROMPT",
+    # Code prompts
+    "CODE_SYSTEM_PROMPT",
+    "CODE_PYTHON_PROMPT",
+    "CODE_JAVASCRIPT_PROMPT",
+    "CODE_JAVA_PROMPT",
+    "CODE_SQL_PROMPT",
+    "CODE_EXPLAINED_PROMPT",
+    "CODE_VALIDATION_PROMPT",
+    # Orchestration prompts
+    "ORCHESTRATOR_SYSTEM_PROMPT",
+    "CONTENT_DETECTION_PROMPT",
+    "SUPERVISOR_SYSTEM_PROMPT",
+    "VALIDATION_PROMPT",
+    "QUALITY_CONTROL_PROMPT",
+    "REGENERATION_PROMPT",
+]

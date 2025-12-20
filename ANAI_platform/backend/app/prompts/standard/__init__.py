@@ -1,0 +1,25 @@
+"""Standard prompts package - Common question types"""
+
+from .extended_prompts import (
+    TRUE_FALSE_PROMPT,
+    FILL_IN_BLANK_PROMPT,
+    CODING_PROMPT,
+    SCENARIO_PROMPT,
+    COMPLEXITY_PROMPT,
+    CODE_OUTPUT_PROMPT,
+    NUMERICAL_PROMPT,
+    DIAGRAM_PROMPT,
+    QUESTION_TYPE_PROMPTS,
+)
+
+__all__ = [
+    'TRUE_FALSE_PROMPT',
+    'FILL_IN_BLANK_PROMPT',
+    'CODING_PROMPT',
+    'SCENARIO_PROMPT',
+    'COMPLEXITY_PROMPT',
+    'CODE_OUTPUT_PROMPT',
+    'NUMERICAL_PROMPT',
+    'DIAGRAM_PROMPT',
+    'QUESTION_TYPE_PROMPTS',
+]
