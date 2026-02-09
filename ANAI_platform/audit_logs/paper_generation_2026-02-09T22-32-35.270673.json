@@ -1,0 +1,242 @@
+{
+  "session_type": "paper_generation",
+  "user_id": null,
+  "start_time": "2026-02-09T22:32:35.270673",
+  "prompts": [],
+  "decisions": [
+    {
+      "decision_type": "difficulty_calibration",
+      "description": "Calibrated medium \u2192 medium (Bloom: [<BloomLevel.REMEMBER: 'Remember'>, <BloomLevel.REMEMBER: 'Remember'>, <BloomLevel.UNDERSTAND: 'Understand'>, <BloomLevel.UNDERSTAND: 'Understand'>, <BloomLevel.REMEMBER: 'Remember'>])",
+      "input_params": {
+        "base_difficulty": "medium",
+        "bloom_level": "[<BloomLevel.REMEMBER: 'Remember'>, <BloomLevel.REMEMBER: 'Remember'>, <BloomLevel.UNDERSTAND: 'Understand'>, <BloomLevel.UNDERSTAND: 'Understand'>, <BloomLevel.REMEMBER: 'Remember'>]"
+      },
+      "output_params": {
+        "adjusted_difficulty": "medium"
+      },
+      "reasoning": "Calibrated using question type constraints",
+      "confidence_score": 0.95,
+      "timestamp": "2026-02-09T22:32:38.373869"
+    },
+    {
+      "decision_type": "difficulty_calibration",
+      "description": "Calibrated medium \u2192 medium (Bloom: [<BloomLevel.UNDERSTAND: 'Understand'>, <BloomLevel.UNDERSTAND: 'Understand'>, <BloomLevel.UNDERSTAND: 'Understand'>])",
+      "input_params": {
+        "base_difficulty": "medium",
+        "bloom_level": "[<BloomLevel.UNDERSTAND: 'Understand'>, <BloomLevel.UNDERSTAND: 'Understand'>, <BloomLevel.UNDERSTAND: 'Understand'>]"
+      },
+      "output_params": {
+        "adjusted_difficulty": "medium"
+      },
+      "reasoning": "Calibrated using question type constraints",
+      "confidence_score": 0.95,
+      "timestamp": "2026-02-09T22:32:40.070023"
+    },
+    {
+      "decision_type": "difficulty_calibration",
+      "description": "Calibrated medium \u2192 medium (Bloom: [<BloomLevel.APPLY: 'Apply'>, <BloomLevel.APPLY: 'Apply'>])",
+      "input_params": {
+        "base_difficulty": "medium",
+        "bloom_level": "[<BloomLevel.APPLY: 'Apply'>, <BloomLevel.APPLY: 'Apply'>]"
+      },
+      "output_params": {
+        "adjusted_difficulty": "medium"
+      },
+      "reasoning": "Calibrated using question type constraints",
+      "confidence_score": 0.95,
+      "timestamp": "2026-02-09T22:33:01.339681"
+    },
+    {
+      "decision_type": "difficulty_calibration",
+      "description": "Calibrated medium \u2192 medium (Bloom: [<BloomLevel.REMEMBER: 'Remember'>, <BloomLevel.UNDERSTAND: 'Understand'>])",
+      "input_params": {
+        "base_difficulty": "medium",
+        "bloom_level": "[<BloomLevel.REMEMBER: 'Remember'>, <BloomLevel.UNDERSTAND: 'Understand'>]"
+      },
+      "output_params": {
+        "adjusted_difficulty": "medium"
+      },
+      "reasoning": "Calibrated using question type constraints",
+      "confidence_score": 0.95,
+      "timestamp": "2026-02-09T22:33:25.285017"
+    },
+    {
+      "decision_type": "difficulty_calibration",
+      "description": "Calibrated medium \u2192 medium (Bloom: [<BloomLevel.APPLY: 'Apply'>, <BloomLevel.APPLY: 'Apply'>])",
+      "input_params": {
+        "base_difficulty": "medium",
+        "bloom_level": "[<BloomLevel.APPLY: 'Apply'>, <BloomLevel.APPLY: 'Apply'>]"
+      },
+      "output_params": {
+        "adjusted_difficulty": "medium"
+      },
+      "reasoning": "Calibrated using question type constraints",
+      "confidence_score": 0.95,
+      "timestamp": "2026-02-09T22:33:51.912530"
+    },
+    {
+      "decision_type": "difficulty_calibration",
+      "description": "Calibrated medium \u2192 medium (Bloom: [<BloomLevel.APPLY: 'Apply'>])",
+      "input_params": {
+        "base_difficulty": "medium",
+        "bloom_level": "[<BloomLevel.APPLY: 'Apply'>]"
+      },
+      "output_params": {
+        "adjusted_difficulty": "medium"
+      },
+      "reasoning": "Calibrated using question type constraints",
+      "confidence_score": 0.95,
+      "timestamp": "2026-02-09T22:34:18.460427"
+    }
+  ],
+  "validations": [
+    {
+      "question_id": "Q-EA452CEE9049",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.484575"
+    },
+    {
+      "question_id": "Q-7BB2B8DDECED",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.500865"
+    },
+    {
+      "question_id": "Q-16250D679A96",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.502650"
+    },
+    {
+      "question_id": "Q-E1B20B9FD814",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.512591"
+    },
+    {
+      "question_id": "Q-5E159FA1FC3B",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.521678"
+    },
+    {
+      "question_id": "Q-F78003D4CC0F",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.521678"
+    },
+    {
+      "question_id": "Q-F2CD6195AEB7",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.529141"
+    },
+    {
+      "question_id": "Q-C9D87CB0C5FC",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.539200"
+    },
+    {
+      "question_id": "Q-3EC9EB55F132",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.545233"
+    },
+    {
+      "question_id": "Q-F4A7AEE5D72C",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.561635"
+    },
+    {
+      "question_id": "Q-5B1CBB534DDB",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.569792"
+    },
+    {
+      "question_id": "Q-14255020D2A8",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.577801"
+    },
+    {
+      "question_id": "Q-166A8D33ED9C",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.609937"
+    },
+    {
+      "question_id": "Q-5D4E2B174036",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 1.0,
+        "issues": []
+      },
+      "timestamp": "2026-02-09T22:34:18.629044"
+    },
+    {
+      "question_id": "Q-6905F5C742AF",
+      "result": {
+        "semantic_validity": true,
+        "quality_score": 0.85,
+        "issues": [
+          "Double spacing detected",
+          "Missing ending punctuation",
+          "Sentence too long (>40 words)"
+        ]
+      },
+      "timestamp": "2026-02-09T22:34:18.690042"
+    }
+  ],
+  "outputs": [],
+  "metadata": {},
+  "end_time": "2026-02-09T22:34:19.597925",
+  "status": "success",
+  "summary": {
+    "total_sections": 6,
+    "total_questions": 15,
+    "metrics_score": 0.689673202614379
+  }
+}

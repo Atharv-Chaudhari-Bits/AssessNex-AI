@@ -13,6 +13,7 @@ import ReviewPage from './pages/ReviewPage'
 import ExamBuilder from './pages/ExamBuilder'
 import PracticePage from './pages/PracticePage'
 import Settings from './pages/Settings'
+import CustomizedQAPage from './pages/CustomizedQAPage'
 import NotFound from './pages/NotFound'
 import ProtectedRoute from './routes/ProtectedRoute'
 
@@ -44,6 +45,7 @@ export default function App(){
             <Route path="/review" element={<ProtectedRoute roles={["Professor","Assistant"]}><ReviewPage/></ProtectedRoute>} />
             <Route path="/exam-builder" element={<ProtectedRoute roles={["Professor"]}><ExamBuilder/></ProtectedRoute>} />
             <Route path="/practice" element={<ProtectedRoute roles={["Student"]}><PracticePage/></ProtectedRoute>} />
+            <Route path="/customized-qa" element={<ProtectedRoute roles={["Professor","Assistant"]}><CustomizedQAPage/></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute roles={["Professor","Assistant","Student"]}><Settings/></ProtectedRoute>} />
 
             <Route path="*" element={<NotFound/>} />

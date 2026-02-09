@@ -210,3 +210,68 @@ async def get_question_info() -> dict:
             status_code=500,
             detail="Failed to fetch question info"
         )
+
+
+@router.post(
+    "/customized",
+    response_model=QuestionGenerationResponse,
+    summary="Generate Customized Question with Chat",
+    description="Generate question based on topic, difficulty, Bloom's taxonomy levels, and chat context"
+)
+async def generate_customized_question(
+    topic: str = Query(..., description="Topic for question generation"),
+    difficulty: str = Query(..., description="Difficulty level"),
+    bloom_levels: str = Query("Remember,Understand,Apply", description="Comma-separated Bloom's taxonomy levels"),
+    chat_context: str = Query("", description="Chat context or user input for customization"),
+    question_type: str = Query("Multiple Choice", description="Type of question")
+) -> QuestionGenerationResponse:
+    """
+    Generate a customized question based on chat interaction.
+    
+    Args:
+        topic: Main topic for question
+        difficulty: Difficulty level (Easy, Medium, Hard)
+        bloom_levels: Comma-separated Bloom's taxonomy levels
+        chat_context: User's chat message or context
+        question_type: Type of question to generate
+    
+    Returns:
+        QuestionGenerationResponse: Generated customized question
+    
+    Example:
+        POST /api/v1/questions/customized?topic=Machine Learning&difficulty=Medium&bloom_levels=Understand,Apply&chat_context=Focus on algorithms
+    """
+    try:
+        validate_subject(topic)
+        validate_difficulty_level(difficulty)
+        validate_question_type(question_type)
+        
+        # Construct context with Bloom's taxonomy and chat
+        bloom_list = [b.strip() for b in bloom_levels.split(",") if b.strip()]
+        full_context = f"Topic: {topic}. Bloom's Taxonomy Levels: {', '.join(bloom_list)}. User Request: {chat_context}"
+        
+        # Create question generation request
+        request = QuestionGenerationRequest(
+            subject=topic,
+            question_type=question_type,
+            difficulty=difficulty,
+            count=1,
+            additional_context=full_context
+        )
+        
+        # Generate question using agent
+        agent = get_agent()
+        response = await agent.generate_questions(request)
+        
+        logger.info(f"Customized question generated for topic: {topic}")
+        return response
+        
+    except ValueError as ve:
+        logger.error(f"Validation error: {str(ve)}")
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error generating customized question: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate customized question"
+        )

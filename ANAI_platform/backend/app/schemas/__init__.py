@@ -8,7 +8,8 @@ backend API for type validation and documentation.
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, validator
 from enum import Enum
-
+from typing import List, Dict, Optional, Union
+from pydantic import BaseModel, Field, validator
 
 class DifficultyLevel(str, Enum):
     """Enumeration for question difficulty levels."""
@@ -358,3 +359,172 @@ class BatchPlagiarismCheckResponse(BaseModel):
         description="Summary statistics"
     )
 
+
+class BloomLevel(str, Enum):
+    """Bloom's Taxonomy Levels for pedagogical alignment."""
+    REMEMBER = "Remember"
+    UNDERSTAND = "Understand"
+    APPLY = "Apply"
+    ANALYZE = "Analyze"
+    EVALUATE = "Evaluate"
+    CREATE = "Create"
+
+
+class QuestionTypeConfiguration(BaseModel):
+    """Configuration for question type in a paper section."""
+    type: str = Field(..., description="Question type (Multiple Choice, Short Answer, etc.)")
+    count: int = Field(..., ge=1, description="Number of questions of this type")
+    marks_each: int = Field(..., ge=1, description="Marks per question")
+    difficulty: str = Field(default="medium", description="Base difficulty: easy/medium/hard")
+    bloom_levels: Optional[List[str]] = Field(
+        None,
+        description="Preferred Bloom's taxonomy levels for this section"
+    )
+
+
+class PaperGenerationRequest(BaseModel):
+    """
+    Enhanced request model for paper generation.
+
+    Supports Bloom's taxonomy alignment and dynamic configuration.
+    """
+    subject: str = Field(..., description="Subject area for the paper")
+    topic: str = Field(..., description="Main topic of the examination")
+    subtopics: Optional[List[str]] = Field(
+        default=None,
+        description="Specific subtopics to cover"
+    )
+    total_marks: int = Field(
+        default=100,
+        ge=50,
+        le=500,
+        description="Total marks for the paper"
+    )
+    duration_minutes: int = Field(
+        default=180,
+        ge=30,
+        le=480,
+        description="Examination duration in minutes"
+    )
+    question_type_config: List[QuestionTypeConfiguration] = Field(
+        ...,
+        description="Configuration for each question type section"
+    )
+    difficulty_distribution: Optional[Dict[str, int]] = Field(
+        None,
+        description="Distribution percentages: {easy: 20, medium: 50, hard: 30}"
+    )
+    bloom_distribution: Optional[Dict[str, int]] = Field(
+        None,
+        description="Bloom's taxonomy distribution: {Remember: 10, Understand: 25, Apply: 30, Analyze: 20, Evaluate: 10, Create: 5}"
+    )
+    exam_name: Optional[str] = Field(
+        None,
+        description="Name of the examination"
+    )
+    instructions: Optional[Union[str, List[str]]] = Field(
+        None,
+        description="Custom examination instructions"
+    )
+    enable_validation: bool = Field(
+        default=True,
+        description="Enable multi-tier validation of questions"
+    )
+    enable_metrics: bool = Field(
+        default=True,
+        description="Enable metrics evaluation of the paper"
+    )
+    enable_explainability: bool = Field(
+        default=True,
+        description="Enable explainability logging"
+    )
+    # 🔥 NORMALIZE TO LIST[str]
+    @validator("instructions", pre=True)
+    def normalize_instructions(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v]
+        return v
+
+class PaperSection(BaseModel):
+    """A section of a question paper."""
+    section_id: str = Field(..., description="Section identifier (A, B, C, etc.)")
+    title: str = Field(..., description="Section title")
+    question_type: str = Field(..., description="Type of questions in this section")
+    num_questions: int = Field(..., description="Number of questions in section")
+    marks_per_question: int = Field(..., description="Marks per question")
+    total_marks: int = Field(..., description="Total marks for section")
+    instructions: str = Field(..., description="Section-specific instructions")
+    questions: List[Question] = Field(..., description="Questions in this section")
+
+
+class PaperHeader(BaseModel):
+    """Header information for a question paper."""
+    exam_name: str = Field(..., description="Name of examination")
+    subject: str = Field(..., description="Subject")
+    topic: str = Field(..., description="Main topic")
+    total_marks: int = Field(..., description="Total marks")
+    duration: str = Field(..., description="Duration (e.g., '180 minutes')")
+    date: str = Field(..., description="Examination date")
+    instructions: List[str] = Field(..., description="General instructions")
+    answer_key: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="Answer key with explanations"
+    )
+
+
+class ValidationSummary(BaseModel):
+    """Summary of validation results."""
+    total_questions: int = Field(..., description="Total questions validated")
+    valid_questions: int = Field(..., description="Number of valid questions")
+    validity_percentage: float = Field(..., description="Percentage of valid questions")
+    average_quality_score: float = Field(..., description="Average quality score (0-1)")
+    average_originality_score: float = Field(..., description="Average originality score (0-1)")
+    diversity_issues: List[str] = Field(default_factory=list, description="Identified diversity issues")
+
+
+class MetricsEvaluation(BaseModel):
+    """Metrics evaluation results for a paper."""
+    overall_score: float = Field(..., ge=0, le=1, description="Overall quality score")
+    diversity_score: float = Field(..., ge=0, le=1, description="Question diversity score")
+    cognitive_fairness: float = Field(..., ge=0, le=1, description="Bloom's taxonomy fairness")
+    difficulty_fairness: float = Field(..., ge=0, le=1, description="Difficulty distribution fairness")
+    recommendations: List[str] = Field(default_factory=list, description="Improvement recommendations")
+
+
+class PaperGenerationResponse(BaseModel):
+    """
+    Response model for paper generation.
+
+    Attributes:
+        status: Response status (success/failure)
+        message: Response message
+        paper: Generated question paper
+        validation: Validation results (if enabled)
+        metrics: Metrics evaluation (if enabled)
+        metadata: Additional metadata
+    """
+    status: str = Field(..., description="Response status")
+    message: str = Field(..., description="Response message")
+    paper: Optional[Dict[str, Any]] = Field(None, description="Generated question paper")
+    validation: Optional[ValidationSummary] = Field(None, description="Validation results")
+    metrics: Optional[MetricsEvaluation] = Field(None, description="Metrics evaluation")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional metadata (generation time, etc.)"
+    )
+
+
+class BloomLevelsResponse(BaseModel):
+    """Response providing available Bloom's taxonomy levels."""
+    levels: List[str] = Field(..., description="Available Bloom's levels")
+    descriptions: Dict[str, str] = Field(..., description="Descriptions of each level")
+
+
+class DomainOntologyResponse(BaseModel):
+    """Response providing domain ontology information."""
+    subject: str = Field(..., description="Subject area")
+    topics: List[str] = Field(..., description="Available topics")
+    concepts: Dict[str, List[str]] = Field(..., description="Concepts per topic")
+    recommendations: Dict[str, str] = Field(..., description="Recommendations per topic")

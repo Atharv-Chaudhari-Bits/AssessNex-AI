@@ -11,8 +11,17 @@ Python naming conventions.
 import os
 import logging
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional, Dict, List
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
+
+# Load .env file from backend directory
+ENV_FILE = Path(__file__).parent.parent / ".env"
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE)
+else:
+    print(f"Warning: .env file not found at {ENV_FILE}")
 
 
 class Settings(BaseSettings):
@@ -22,6 +31,13 @@ class Settings(BaseSettings):
     This class loads configuration from environment variables and provides
     defaults for non-sensitive application settings.
     """
+    
+    model_config = SettingsConfigDict(
+        env_file=str(ENV_FILE),
+        env_file_encoding='utf-8',
+        case_sensitive=True,
+        extra='ignore'
+    )
 
     # Application Settings
     APP_NAME: str = "AssessNex AI"
@@ -29,23 +45,32 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     ENVIRONMENT: str = "development"
 
+    # LLM Provider Selection
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai")  # Options: "openai", "google", "grok", "groq"
+    
     # Azure OpenAI Configuration
-    AZURE_OPENAI_API_KEY: str = os.getenv(
-        "AZURE_OPENAI_API_KEY",
-        ""
-    )
-    AZURE_OPENAI_ENDPOINT: str = os.getenv(
-        "AZURE_OPENAI_ENDPOINT",
-        ""
-    )
+    AZURE_OPENAI_API_KEY: str = os.getenv("AZURE_OPENAI_API_KEY", "")
+    AZURE_OPENAI_ENDPOINT: str = os.getenv("AZURE_OPENAI_ENDPOINT", "")
     AZURE_DEPLOYMENT: str = os.getenv("AZURE_DEPLOYMENT", "gpt-4o")
     AZURE_API_VERSION: str = os.getenv("AZURE_API_VERSION", "2024-08-01-preview")
+    
+    # Google AI (Gemini) Configuration
+    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
+    GOOGLE_MODEL: str = os.getenv("GOOGLE_MODEL", "gemini-2.0-flash")
+    
+    # Grok LLM Configuration
+    GROK_API_KEY: str = os.getenv("GROK_API_KEY", "")
+    GROK_MODEL: str = os.getenv("GROK_MODEL", "grok-2-vision-1212")
+
+    # Groq Configuration
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")
 
     # LLM Configuration
-    LLM_MAX_RETRIES: int = 3
-    LLM_TEMPERATURE: float = 0.5
-    LLM_MAX_TOKENS: int = 8192  # Increased for generating multiple questions with detailed answers
-    REQUEST_TIMEOUT: int = 120  # Increased timeout for larger responses
+    LLM_MAX_RETRIES: int = int(os.getenv("LLM_MAX_RETRIES", "3"))
+    LLM_TEMPERATURE: float = float(os.getenv("LLM_TEMPERATURE", "0.5"))
+    LLM_MAX_TOKENS: int = int(os.getenv("LLM_MAX_TOKENS", "8192"))
+    REQUEST_TIMEOUT: int = int(os.getenv("REQUEST_TIMEOUT", "120"))
 
     # Question Generation Settings
     SUBJECTS: List[str] = [
@@ -120,14 +145,10 @@ class Settings(BaseSettings):
     LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
     # Server Configuration
-    SERVER_HOST: str = "0.0.0.0"
-    SERVER_PORT: int = 8000
-    RELOAD: bool = False
-
-    class Config:
-        """Pydantic configuration for environment variable loading."""
-        env_file = ".env"
-        case_sensitive = True
+    SERVER_HOST: str = os.getenv("SERVER_HOST", "0.0.0.0")
+    SERVER_PORT: int = int(os.getenv("SERVER_PORT", "8000"))
+    RELOAD: bool = os.getenv("RELOAD", "False").lower() in ("true", "1", "yes")
+    DEBUG: bool = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
 
 
 @lru_cache()

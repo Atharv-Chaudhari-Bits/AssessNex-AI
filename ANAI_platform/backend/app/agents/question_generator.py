@@ -16,7 +16,6 @@ from backend.app.utils import (
     format_question_response,
     fix_question_latex,
 )
-from backend.app.agents.formatting_agents import FormattingPipeline
 
 
 logger = get_logger(__name__)
@@ -47,8 +46,7 @@ Important Guidelines:
         """Initialize the question generation agent."""
         self.llm_client = get_llm_client()
         self.prompt_builder = PromptBuilder()
-        self.formatting_pipeline = FormattingPipeline()
-        logger.info("QuestionGenerationAgent initialized with PromptBuilder and FormattingPipeline")
+        logger.info("QuestionGenerationAgent initialized with PromptBuilder")
 
     def _build_generation_prompt(
         self,
@@ -96,6 +94,13 @@ Important Guidelines:
     ) -> List[Dict[str, Any]]:
         """
         Generate questions using the LLM agent.
+
+        The generation pipeline:
+        1. Build optimized prompt with type-specific guidance
+        2. Call LLM to generate JSON questions
+        3. Parse and validate response
+        4. Apply UNIFIED formatting based on question type
+        5. Fix any LaTeX corruption
 
         Args:
             subject: Subject area for questions
@@ -152,16 +157,11 @@ Important Guidelines:
                 difficulty_level,
             )
 
-            # Apply formatting pipeline for specialized question types
-            questions = self.formatting_pipeline.format_questions(
-                questions=questions,
-                question_type=question_type,
-                diagram_format=diagram_format,
-            )
-
-            # FINAL POST-PROCESSING: Apply custom flag-based formatting
-            # This ensures consistent formatting that frontend can recognize
-            from backend.app.utils import format_all_questions_with_flags
+            # SINGLE POST-PROCESSING: Apply unified formatting
+            # This is the ONLY formatting step - ensures consistency
+            from backend.app.utils import format_all_questions_with_flags, fix_question_latex
+            
+            # Apply type-based formatting (handles code blocks, LaTeX, diagrams, sanitization)
             questions = format_all_questions_with_flags(questions, question_type)
             
             # Fix any corrupted LaTeX backslashes (e.g., \text becoming extdepth)

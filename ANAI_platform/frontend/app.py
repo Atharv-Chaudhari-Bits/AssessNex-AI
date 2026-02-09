@@ -3,11 +3,25 @@ import streamlit.components.v1 as components
 from datetime import datetime
 import json
 import re
+import io
 from config import get_question_types, get_difficulty_levels
 from api_client import get_api_client
 from utils import setup_logging
 
 logger = setup_logging(__name__)
+
+# Try to import PDF/DOCX parsers
+try:
+    import PyPDF2
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+
+try:
+    from docx import Document
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
 
 # ============================================================================
 # PAGE CONFIGURATION
@@ -1220,6 +1234,77 @@ def render_styled_content(text: str, q_type: str, style_type: str = "answer", co
     """, unsafe_allow_html=True)
 
 
+# ============================================================================
+# DOCUMENT PARSING HELPER FUNCTIONS
+# ============================================================================
+
+def parse_pdf(file_bytes: bytes) -> str:
+    """Extract text from PDF file."""
+    if not PDF_AVAILABLE:
+        raise Exception("PyPDF2 not installed. Run: pip install PyPDF2")
+    
+    try:
+        pdf_file = io.BytesIO(file_bytes)
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        
+        text = ""
+        for page_num, page in enumerate(pdf_reader.pages):
+            try:
+                text += page.extract_text() + "\n"
+            except Exception as e:
+                logger.warning(f"Error extracting page {page_num + 1}: {str(e)}")
+                continue
+        
+        return text.strip()
+    except Exception as e:
+        raise Exception(f"Failed to parse PDF: {str(e)}")
+
+
+def parse_docx(file_bytes: bytes) -> str:
+    """Extract text from DOCX file."""
+    if not DOCX_AVAILABLE:
+        raise Exception("python-docx not installed. Run: pip install python-docx")
+    
+    try:
+        docx_file = io.BytesIO(file_bytes)
+        doc = Document(docx_file)
+        
+        text = ""
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                text += paragraph.text + "\n"
+        
+        return text.strip()
+    except Exception as e:
+        raise Exception(f"Failed to parse DOCX: {str(e)}")
+
+
+def parse_text_file(file_bytes: bytes) -> str:
+    """Extract text from TXT file."""
+    try:
+        text = file_bytes.decode('utf-8')
+        return text.strip()
+    except Exception as e:
+        raise Exception(f"Failed to parse TXT: {str(e)}")
+
+
+def extract_document_text(uploaded_file) -> str:
+    """Extract text from uploaded file based on file type."""
+    try:
+        file_bytes = uploaded_file.read()
+        
+        if uploaded_file.type == "application/pdf":
+            return parse_pdf(file_bytes)
+        elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            return parse_docx(file_bytes)
+        elif uploaded_file.type == "text/plain":
+            return parse_text_file(file_bytes)
+        else:
+            raise Exception(f"Unsupported file type: {uploaded_file.type}")
+    except Exception as e:
+        raise Exception(f"Error processing document: {str(e)}")
+
+
 def display_question(question: dict, index: int):
     """Display a single question with all details, including code and math formatting."""
     with st.container(border=True):
@@ -1470,7 +1555,7 @@ st.markdown("""
 # TAB INTERFACE
 # ============================================================================
 
-tab1, tab2, tab3 = st.tabs([" Generate Questions", " Question Paper", " Assignment"])
+tab1, tab2, tab3, tab4 = st.tabs([" Generate Questions", " Question Paper", " Assignment", " Customised Q&A"])
 
 
 # ============================================================================
@@ -1820,9 +1905,9 @@ with tab1:
 
 with tab2:
     display_header("📄 Generate Question Paper", "Create complete papers with custom distribution")
-    
+
     st.markdown("### 📋 Paper Configuration")
-    
+
     col1, col2 = st.columns(2)
     with col1:
         paper_name = st.text_input("📝 Paper Name", value="Midterm Examination", key="paper_name")
@@ -1831,11 +1916,14 @@ with tab2:
         paper_semester = st.selectbox("📅 Semester", list(range(1, 9)), key="paper_semester")
         paper_subject = st.selectbox(
             "📚 Subject",
-            ["Machine Learning", "Deep Learning", "Natural Language Processing", "Computer Vision", 
-             "Artificial Intelligence", "Reinforcement Learning", "Data Science", "Cryptography"],
+            [
+                "Machine Learning", "Deep Learning", "Natural Language Processing",
+                "Computer Vision", "Artificial Intelligence",
+                "Reinforcement Learning", "Data Science", "Cryptography"
+            ],
             key="paper_subject"
         )
-    
+
     col1, col2, col3 = st.columns(3)
     with col1:
         total_questions = st.slider("❓ Total Questions", 5, 50, 15, key="paper_total")
@@ -1843,166 +1931,699 @@ with tab2:
         total_marks = st.slider("📊 Total Marks", 10, 200, 100, key="paper_marks")
     with col3:
         paper_duration = st.slider("⏱️ Duration (min)", 30, 240, 90, step=15, key="paper_duration")
-    
+
     st.divider()
-    
-    # Difficulty Distribution
+
+    # ---------------- Difficulty Distribution ----------------
     st.markdown("#### 🎯 Difficulty Distribution")
+
     col1, col2, col3 = st.columns(3)
     with col1:
-        easy_count = st.number_input("🟢 Easy", 0, total_questions, total_questions // 3, key="paper_easy")
+        easy_count = st.number_input("🟢 Easy", 0, total_questions, total_questions // 3)
     with col2:
-        medium_count = st.number_input("🟡 Medium", 0, total_questions, total_questions // 3, key="paper_medium")
+        medium_count = st.number_input("🟡 Medium", 0, total_questions, total_questions // 3)
     with col3:
-        hard_count = st.number_input("🔴 Hard", 0, total_questions, total_questions - 2*(total_questions // 3), key="paper_hard")
-    
+        hard_count = st.number_input(
+            "🔴 Hard", 0, total_questions, total_questions - 2 * (total_questions // 3)
+        )
+
     diff_total = easy_count + medium_count + hard_count
     if diff_total != total_questions:
         st.warning(f"⚠️ Difficulty total: {diff_total} (Need {total_questions})")
     else:
-        st.success(f"✅ Difficulty: Easy({easy_count}) + Medium({medium_count}) + Hard({hard_count}) = {diff_total}")
-    
-    st.divider()
-    
-    # Question Type Distribution
-    st.markdown("#### 📝 Question Type Distribution")
-    
-    # Type mapping for API
-    type_key_mapping = {
-        "Multiple Choice": "MCQ",
-        "Short Answer": "ShortAnswer", 
-        "Long Answer": "LongAnswer",
-        "True/False": "TrueFalse",
-        "Fill in the Blank": "FillBlank",
-        "Numerical Problem": "Numerical",
-        "Code Implementation": "CodeImplementation",
-        "Diagram-Based": "DiagramBased"
+        st.success("✅ Difficulty distribution valid")
+
+    difficulty_distribution = {
+        "Easy": easy_count,
+        "Medium": medium_count,
+        "Hard": hard_count
     }
-    
+
+    st.divider()
+
+    # ---------------- Question Type Distribution ----------------
+    st.markdown("#### 📝 Question Type Distribution")
+
     col1, col2 = st.columns(2)
-    type_distribution = {}
-    
+
     with col1:
-        type_distribution["MCQ"] = st.number_input("✅ Multiple Choice", 0, total_questions, min(5, total_questions), key="paper_mcq")
-        type_distribution["ShortAnswer"] = st.number_input("📝 Short Answer", 0, total_questions, 3, key="paper_short")
-        type_distribution["LongAnswer"] = st.number_input("📄 Long Answer", 0, total_questions, 2, key="paper_long")
-        type_distribution["TrueFalse"] = st.number_input("❓ True/False", 0, total_questions, 2, key="paper_tf")
-    
+        mcq = st.number_input("✅ Multiple Choice", 0, total_questions, min(5, total_questions))
+        short_ans = st.number_input("📝 Short Answer", 0, total_questions, 3)
+        long_ans = st.number_input("📄 Long Answer", 0, total_questions, 2)
+        tf = st.number_input("❓ True/False", 0, total_questions, 2)
+
     with col2:
-        type_distribution["FillBlank"] = st.number_input("✏️ Fill in Blank", 0, total_questions, 0, key="paper_fill")
-        type_distribution["Numerical"] = st.number_input("🔢 Numerical", 0, total_questions, 2, key="paper_num")
-        type_distribution["CodeImplementation"] = st.number_input("💻 Code", 0, total_questions, 1, key="paper_code_q")
-        type_distribution["DiagramBased"] = st.number_input("📊 Diagram", 0, total_questions, 0, key="paper_diag")
-    
-    type_total = sum(type_distribution.values())
+        fill = st.number_input("✏️ Fill in Blank", 0, total_questions, 0)
+        numerical = st.number_input("🔢 Numerical", 0, total_questions, 2)
+        code = st.number_input("💻 Code Implementation", 0, total_questions, 1)
+        diagram = st.number_input("📊 Diagram Based", 0, total_questions, 0)
+
+    type_total = mcq + short_ans + long_ans + tf + fill + numerical + code + diagram
     if type_total != total_questions:
-        st.warning(f"⚠️ Type total: {type_total} (Need {total_questions})")
+        st.warning(f"⚠️ Question type total: {type_total} (Need {total_questions})")
     else:
-        st.success(f"✅ Question types distributed: {type_total} questions")
-    
+        st.success("✅ Question type distribution valid")
+
+    question_type_config = []
+
+    def add_q(type_name, count, marks_each):
+        if count > 0:
+            question_type_config.append({
+                "type": type_name,
+                "count": count,
+                "marks_each": marks_each,
+                "difficulty": "medium",
+                "bloom_levels": ["Remember", "Understand", "Apply"]
+            })
+
+    marks_each = max(1, total_marks // max(total_questions, 1))
+
+    add_q("Multiple Choice", mcq, marks_each)
+    add_q("Short Answer", short_ans, marks_each)
+    add_q("Long Answer", long_ans, marks_each)
+    add_q("True/False", tf, marks_each)
+    add_q("Fill in the Blank", fill, marks_each)
+    add_q("Numerical Problem", numerical, marks_each)
+    add_q("Code Implementation", code, marks_each)
+    add_q("Diagram-Based", diagram, marks_each)
+
     st.divider()
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        paper_context = st.text_area(
-            "📋 Paper Context (Optional)",
-            height=80,
-            placeholder="Topics, concepts, or focus areas...",
-            key="paper_context"
+
+    # ---------------- Document-Based Generation ----------------
+    st.markdown("### 📄 Document-Based Generation (Optional)")
+
+    use_document = st.checkbox("📤 Use document content to generate paper", value=False)
+    document_text = None
+
+    if use_document:
+        uploaded_file = st.file_uploader(
+            "📁 Upload document (PDF, DOCX, TXT)",
+            type=["pdf", "docx", "txt"]
         )
-    with col2:
-        paper_instructions = st.text_area(
-            "📜 Instructions",
-            height=80,
-            value="Answer all questions. Show all working where applicable.",
-            key="paper_instructions"
-        )
-    
+
+        if uploaded_file:
+            document_text = extract_document_text(uploaded_file)
+            st.success(f"✅ Extracted {len(document_text)} characters")
+
     st.divider()
-    
-    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
-    with col_btn2:
-        if st.button("🚀 Generate Paper", type="primary", use_container_width=True, key="paper_generate"):
-            if diff_total != total_questions:
-                st.error("❌ Difficulty distribution must equal total questions")
-            elif type_total != total_questions:
-                st.error("❌ Question type distribution must equal total questions")
+
+    paper_topic = st.text_area(
+        "📋 Paper Topic / Context (Optional)",
+        height=80,
+        placeholder="Topics, concepts, or focus areas..."
+    )
+
+    paper_instructions = st.text_area(
+        "📜 Instructions",
+        height=80,
+        value="Answer all questions. Show all working where applicable."
+    )
+
+    bloom_distribution = {
+        "Remember": 10,
+        "Understand": 25,
+        "Apply": 30,
+        "Analyze": 20,
+        "Evaluate": 10,
+        "Create": 5
+    }
+
+    st.divider()
+
+    # ---------------- Generate Button ----------------
+    if st.button("🚀 Generate Paper", type="primary", use_container_width=True):
+        if diff_total != total_questions or type_total != total_questions:
+            st.error("❌ Fix distributions before generating paper")
+        else:
+            try:
+                client = st.session_state.api_client
+
+                payload = {
+                    "exam_name": paper_name,
+                    "subject": paper_subject,
+                    "topic": paper_topic or paper_name,
+                    "total_marks": total_marks,
+                    "duration_minutes": paper_duration,
+                    "question_type_config": question_type_config,
+                    "bloom_distribution": bloom_distribution,
+                    "instructions": paper_instructions
+                }
+
+                response = client.generate_paper_with_payload(payload)
+
+                paper_data = response.get("paper", response)
+                st.session_state.generated_paper = paper_data
+
+                st.success("✅ Paper generated successfully!")
+                st.balloons()
+
+            except Exception as e:
+                st.error("❌ Backend validation failed")
+                import traceback
+                st.code(traceback.format_exc())
+    # ---------------- Display Generated Paper ----------------
+    if "generated_paper" in st.session_state and st.session_state.generated_paper:
+        
+        st.divider()
+        
+        # Add custom CSS for better styling
+        st.markdown("""
+        <style>
+        /* Force all text to be black */
+        .stMarkdown, .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown li, .stMarkdown ul, .stMarkdown ol {
+            color: black !important;
+        }
+        
+        /* Specific styling for paper elements */
+        .paper-header-container {
+            background-color: #e8f4fd;
+            padding: 25px;
+            border-radius: 10px;
+            border-left: 5px solid #1e88e5;
+            margin-bottom: 25px;
+        }
+        
+        .paper-title {
+            color: #0d47a1 !important;
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .paper-info {
+            color: #1565c0 !important;
+            font-size: 18px;
+            margin: 10px 0;
+        }
+        
+        .section-title {
+            color: #1a237e !important;
+            font-size: 24px;
+            font-weight: 600;
+            margin-top: 30px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #1a237e;
+        }
+        
+        .question-text {
+            color: #000000 !important;
+            font-size: 18px;
+            font-weight: 500;
+            margin: 20px 0 15px 0;
+            line-height: 1.5;
+        }
+        
+        .options-container {
+            margin-left: 25px;
+            margin-bottom: 15px;
+        }
+        
+        .option-text {
+            color: #424242 !important;
+            font-size: 16px;
+            margin: 8px 0;
+            padding-left: 10px;
+        }
+        
+        .marks-badge {
+            color: #d32f2f !important;
+            font-weight: 600;
+            font-size: 16px;
+            background-color: #ffebee;
+            padding: 4px 12px;
+            border-radius: 15px;
+            display: inline-block;
+            margin-top: 10px;
+        }
+        
+        .question-divider {
+            border-top: 1px dashed #b0bec5;
+            margin: 25px 0;
+        }
+        
+        /* Fix for streamlit default colors */
+        .st-emotion-cache-1v0mbdj {
+            color: black !important;
+        }
+        
+        p, div, span {
+            color: black !important;
+        }
+        
+        /* Export button styling */
+        .export-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("## 📄 Generated Question Paper")
+        
+        # ==================== DATA TRANSFORMATION FUNCTION ====================
+        def transform_backend_data(response):
+            """
+            Transform backend response to frontend-compatible format.
+            Handles field name mismatches, missing data, and formatting issues.
+            """
+            if not response:
+                return {"error": "No response data"}
+            
+            # Extract paper from response
+            if isinstance(response, dict) and "paper" in response:
+                paper = response["paper"]
+                # Keep the full response for metadata
+                full_response = response
             else:
-                try:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
+                paper = response
+                full_response = {}
+            
+            # Ensure paper has sections
+            if "sections" not in paper:
+                paper["sections"] = []
+            
+            # Transform each section and question
+            transformed_sections = []
+            total_questions = 0
+            
+            for section_idx, section in enumerate(paper.get("sections", [])):
+                # Ensure section has required fields
+                section_title = section.get("title", f"Section {chr(65 + section_idx)}")
+                question_type = section.get("question_type", "Multiple Choice")
+                
+                transformed_section = {
+                    "title": section_title,
+                    "question_type": question_type,
+                    "instructions": section.get("instructions", ""),
+                    "questions": []
+                }
+                
+                # Transform questions in this section
+                questions = section.get("questions", [])
+                for q_idx, question in enumerate(questions):
+                    total_questions += 1
                     
-                    status_text.info("📝 Generating question paper with LLM...")
-                    progress_bar.progress(20)
+                    # ===== FIX 1: Handle question text =====
+                    # Try multiple possible field names for question text
+                    question_text = None
+                    possible_question_fields = ["question", "question_text", "prompt", "text", "query"]
                     
-                    # Build distribution for API
-                    distribution = {
-                        "difficulty": {
-                            "Easy": easy_count,
-                            "Medium": medium_count,
-                            "Hard": hard_count
-                        },
-                        "types": type_distribution
+                    for field in possible_question_fields:
+                        if field in question and question[field]:
+                            question_text = str(question[field]).strip()
+                            break
+                    
+                    # If still no question text, create one
+                    if not question_text or question_text.lower() == "none":
+                        # Generate descriptive question text
+                        topic = paper.get("topic", paper.get("subject", "the topic"))
+                        difficulty = question.get("difficulty", "medium")
+                        question_type_local = question.get("type", question_type)
+                        
+                        question_text = f"{question_type_local} question on {topic}"
+                        
+                        # Add difficulty context
+                        if difficulty:
+                            question_text += f" ({difficulty} difficulty)"
+                        
+                        # Mark as auto-generated
+                        question["_auto_generated"] = True
+                    
+                    # ===== FIX 2: Handle options =====
+                    options = []
+                    if "options" in question and question["options"]:
+                        raw_options = question["options"]
+                        if isinstance(raw_options, list):
+                            # Clean each option
+                            for opt_idx, opt in enumerate(raw_options):
+                                if opt and str(opt).strip().lower() != "none":
+                                    opt_text = str(opt).strip()
+                                    
+                                    # Ensure option has letter prefix
+                                    option_letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+                                    if opt_idx < len(option_letters):
+                                        # Check if already has letter
+                                        if len(opt_text) > 2 and opt_text[1] == ')':
+                                            options.append(opt_text)
+                                        else:
+                                            options.append(f"{option_letters[opt_idx]}) {opt_text}")
+                                    else:
+                                        options.append(f"{opt_idx + 1}) {opt_text}")
+                    
+                    # ===== FIX 3: Handle answer =====
+                    answer = None
+                    possible_answer_fields = ["answer", "expected_answer", "correct_answer", "solution"]
+                    
+                    for field in possible_answer_fields:
+                        if field in question and question[field]:
+                            answer = str(question[field]).strip()
+                            break
+                    
+                    # ===== FIX 4: Create transformed question =====
+                    transformed_question = {
+                        "id": question.get("id", f"q_{total_questions}"),
+                        "question_number": total_questions,
+                        "question": question_text,
+                        "type": question.get("type", question_type),
+                        "options": options,
+                        "answer": answer,
+                        "marks": question.get("marks", section.get("marks_per_question", 2)),
+                        "difficulty": question.get("difficulty", "medium"),
+                        "bloom_level": question.get("bloom_level", "Apply"),
+                        "explanation": question.get("explanation", ""),
+                        "topic": question.get("topic", paper.get("topic", "")),
+                        "_original_data": {k: v for k, v in question.items() if k not in ["question", "options", "answer"]}
                     }
                     
-                    client = st.session_state.api_client
-                    
-                    status_text.info("🔄 Calling Paper Generation API...")
-                    progress_bar.progress(40)
-                    
-                    response = client.generate_paper(
-                        name=paper_name,
-                        course_code=paper_code,
-                        semester=paper_semester,
-                        subject=paper_subject,
-                        total_questions=total_questions,
-                        total_marks=total_marks,
-                        duration_minutes=paper_duration,
-                        distribution=distribution
-                    )
-                    
-                    progress_bar.progress(80)
-                    
-                    paper_data = response.get('data', {})
-                    questions = paper_data.get('questions', [])
-                    
-                    progress_bar.progress(100)
-                    status_text.success(f"✅ Paper generated with {len(questions)} questions!")
-                    
-                    st.session_state.generated_paper = paper_data
-                    st.balloons()
-                    
-                    st.divider()
-                    
-                    # Display paper header
-                    st.markdown(f"""
-                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                                padding: 2rem; border-radius: 15px; margin: 1rem 0; text-align: center;">
-                        <h1 style="color: white; margin: 0;">📄 {paper_name}</h1>
-                        <p style="color: rgba(255,255,255,0.9); margin: 0.5rem 0;">
-                            {paper_code} | Semester {paper_semester} | {paper_subject}
-                        </p>
-                        <p style="color: rgba(255,255,255,0.8); margin: 0;">
-                            ⏱️ {paper_duration} min | 📊 {total_marks} marks | ❓ {len(questions)} questions
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Display instructions
-                    if paper_instructions:
-                        st.info(f"**📜 Instructions:** {paper_instructions}")
-                    
-                    st.divider()
-                    
-                    # Display questions by type
-                    for idx, question in enumerate(questions):
-                        display_question(question, idx)
-                    
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
+                    transformed_section["questions"].append(transformed_question)
+                
+                transformed_sections.append(transformed_section)
+            
+            # ===== FIX 5: Ensure paper has required top-level fields =====
+            final_paper = {
+                "exam_name": paper.get("exam_name", paper.get("header", {}).get("exam_name", "Question Paper")),
+                "subject": paper.get("subject", paper_subject),
+                "topic": paper.get("topic", ""),
+                "total_marks": paper.get("total_marks", total_marks),
+                "duration_minutes": paper.get("duration_minutes", paper_duration),
+                "instructions": paper.get("instructions", paper.get("header", {}).get("instructions", [])),
+                "sections": transformed_sections,
+                "_metadata": {
+                    "total_questions": total_questions,
+                    "total_sections": len(transformed_sections),
+                    "transformation_applied": True,
+                    "original_response_keys": list(response.keys()) if isinstance(response, dict) else []
+                },
+                "_full_response": full_response  # Keep original for debug
+            }
+            
+            return final_paper
+        
+        # ==================== APPLY TRANSFORMATION ====================
+        try:
+            # Transform backend data
+            transformed_paper = transform_backend_data(st.session_state.generated_paper)
+            
+            # Debug info in sidebar
+            st.sidebar.markdown("### 🔍 Data Status")
+            
+            # Show transformation stats
+            st.sidebar.info(f"""
+            📊 Paper Statistics:
+            - Sections: {len(transformed_paper['sections'])}
+            - Total Questions: {transformed_paper['_metadata']['total_questions']}
+            - Transformation Applied: ✅
+            """)
+            
+            # Debug expander
+            with st.sidebar.expander("📋 Debug Details"):
+                st.json(transformed_paper["_metadata"])
+                
+                # Show sample of transformed questions
+                st.markdown("**Sample Questions:**")
+                for i, section in enumerate(transformed_paper["sections"][:2]):
+                    for j, q in enumerate(section["questions"][:1]):
+                        st.text(f"Q{q['question_number']}: {q['question'][:80]}...")
+                        if q.get("_auto_generated"):
+                            st.warning("⚠️ Auto-generated question text")
+            
+            # Get the transformed paper
+            paper = transformed_paper
+            
+        except Exception as e:
+            st.error(f"Error transforming paper data: {str(e)}")
+            # Fallback to original
+            response = st.session_state.generated_paper
+            if isinstance(response, dict) and "paper" in response:
+                paper = response["paper"]
+            else:
+                paper = response
+            st.warning("Using untransformed data (may have display issues)")
+        
+        # ==================== DISPLAY PAPER ====================
+        
+        # Header section
+        st.markdown(f"""
+        <div class="paper-header-container">
+            <div class="paper-title">📝 {paper.get('exam_name', 'Question Paper')}</div>
+            <div class="paper-info">
+                <strong>📚 Subject:</strong> {paper.get('subject', paper_subject)}<br>
+                <strong>⏱️ Duration:</strong> {paper.get('duration_minutes', paper_duration)} minutes<br>
+                <strong>📊 Total Marks:</strong> {paper.get('total_marks', total_marks)}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # Export button at the top
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            if st.button("📥 Export Paper", use_container_width=True, type="primary"):
+                st.session_state.export_paper = paper
+                st.rerun()
+        
+        # Instructions
+        instructions = paper.get("instructions", [])
+        if instructions and isinstance(instructions, list) and len(instructions) > 0:
+            # Filter out empty instructions
+            valid_instructions = [inst for inst in instructions if inst and str(inst).strip()]
+            if valid_instructions:
+                st.markdown("### 📜 Instructions")
+                for i, inst in enumerate(valid_instructions, 1):
+                    st.markdown(f"<p style='color: black !important; font-size: 16px;'>{i}. {inst}</p>", unsafe_allow_html=True)
+                st.divider()
+        
+        # Display sections and questions
+        sections = paper.get("sections", [])
+        
+        if not sections:
+            st.warning("No sections found in the paper.")
+        else:
+            for section_idx, section in enumerate(sections):
+                section_title = section.get("title", f"Section {chr(65 + section_idx)}")
+                st.markdown(f'<div class="section-title">{section_title}</div>', unsafe_allow_html=True)
+                
+                # Show section instructions if available
+                section_instructions = section.get("instructions")
+                if section_instructions and str(section_instructions).strip():
+                    st.markdown(f"*{section_instructions}*")
+                
+                questions = section.get("questions", [])
+                
+                if not questions:
+                    st.info(f"No questions in {section_title}")
+                else:
+                    for q in questions:
+                        # Display question
+                        st.markdown(f'<div class="question-text">Q{q["question_number"]}. {q["question"]}</div>', 
+                                unsafe_allow_html=True)
+                        
+                        # Display options for MCQ/TrueFalse
+                        if q["type"] in ["Multiple Choice", "True/False"] and q.get("options"):
+                            st.markdown('<div class="options-container">', unsafe_allow_html=True)
+                            for option in q["options"]:
+                                st.markdown(f'<div class="option-text">{option}</div>', unsafe_allow_html=True)
+                            st.markdown('</div>', unsafe_allow_html=True)
+                        
+                        # Display marks
+                        marks = q.get("marks")
+                        if marks:
+                            st.markdown(f'<div class="marks-badge">Marks: {marks}</div>', unsafe_allow_html=True)
+                        
+                        # Display metadata in columns
+                        col1, col2, col3 = st.columns(3)
+                        
+                        with col1:
+                            difficulty = q.get("difficulty")
+                            if difficulty:
+                                difficulty_color = {
+                                    "easy": "🟢",
+                                    "medium": "🟡", 
+                                    "hard": "🔴"
+                                }.get(difficulty.lower(), "⚪")
+                                st.caption(f"**Difficulty:** {difficulty_color} {difficulty}")
+                        
+                        with col2:
+                            q_type = q.get("type")
+                            if q_type:
+                                st.caption(f"**Type:** {q_type}")
+                        
+                        with col3:
+                            bloom = q.get("bloom_level")
+                            if bloom:
+                                st.caption(f"**Bloom's:** {bloom}")
+                        
+                        # Show answer if in teacher mode
+                        if st.session_state.get("teacher_mode", False):
+                            answer = q.get("answer")
+                            if answer:
+                                with st.expander(f"📝 Answer (Q{q['question_number']})"):
+                                    st.success(f"**Correct Answer:** {answer}")
+                                    
+                                    explanation = q.get("explanation")
+                                    if explanation:
+                                        st.info(f"**Explanation:** {explanation}")
+                        
+                        st.markdown('<div class="question-divider"></div>', unsafe_allow_html=True)
+        
+        # Summary statistics
+        st.divider()
+        st.markdown("### 📊 Paper Summary")
+        
+        total_q = paper["_metadata"]["total_questions"] if "_metadata" in paper else sum(len(s.get("questions", [])) for s in sections)
+        total_marks_calc = sum(
+            q.get("marks", 0) 
+            for section in sections 
+            for q in section.get("questions", [])
+        )
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Total Questions", total_q)
+        with col2:
+            st.metric("Total Marks", total_marks_calc)
+        with col3:
+            st.metric("Sections", len(sections))
+        with col4:
+            # Calculate average difficulty
+            difficulties = []
+            for section in sections:
+                for q in section.get("questions", []):
+                    if q.get("difficulty"):
+                        difficulties.append(q["difficulty"])
+            
+            if difficulties:
+                diff_count = {
+                    "easy": difficulties.count("easy"),
+                    "medium": difficulties.count("medium"),
+                    "hard": difficulties.count("hard")
+                }
+                avg_diff = max(diff_count.items(), key=lambda x: x[1])[0] if diff_count else "N/A"
+                st.metric("Avg Difficulty", avg_diff.title())
+            else:
+                st.metric("Avg Difficulty", "N/A")
+        
+        # ==================== EXPORT FUNCTIONALITY ====================
+        st.divider()
+        st.markdown("### 📤 Export Options")
+        
+        # Create export content
+        export_content = f"""QUESTION PAPER
+    {"=" * 60}
 
+    EXAM: {paper.get('exam_name', 'Question Paper')}
+    SUBJECT: {paper.get('subject', paper_subject)}
+    TOPIC: {paper.get('topic', 'General')}
+    DURATION: {paper.get('duration_minutes', paper_duration)} minutes
+    TOTAL MARKS: {paper.get('total_marks', total_marks)}
+
+    {"=" * 60}
+
+    """
+        
+        # Add instructions
+        instructions = paper.get("instructions", [])
+        if instructions and isinstance(instructions, list):
+            valid_inst = [inst for inst in instructions if inst and str(inst).strip()]
+            if valid_inst:
+                export_content += "INSTRUCTIONS:\n"
+                for i, inst in enumerate(valid_inst, 1):
+                    export_content += f"{i}. {inst}\n"
+                export_content += "\n"
+        
+        # Add questions
+        for section in sections:
+            export_content += f"\n{section.get('title', 'SECTION')}\n"
+            export_content += "-" * 50 + "\n\n"
+            
+            for q in section.get("questions", []):
+                export_content += f"Q{q.get('question_number', '?')}. {q.get('question', '')}\n"
+                
+                # Add options
+                options = q.get("options", [])
+                if options:
+                    for opt in options:
+                        export_content += f"   {opt}\n"
+                
+                # Add metadata
+                export_content += f"   [Marks: {q.get('marks', 'N/A')}"
+                
+                difficulty = q.get("difficulty")
+                if difficulty:
+                    export_content += f" | Difficulty: {difficulty}"
+                
+                bloom = q.get("bloom_level")
+                if bloom:
+                    export_content += f" | Bloom's: {bloom}"
+                
+                export_content += "]\n\n"
+        
+        export_content += "\n" + "=" * 60 + "\n"
+        export_content += f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        export_content += "=" * 60
+        
+        # Export buttons
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Download as text file
+            st.download_button(
+                label="📄 Download as Text",
+                data=export_content,
+                file_name=f"{paper.get('exam_name', 'paper').replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.txt",
+                mime="text/plain",
+                use_container_width=True,
+                type="secondary"
+            )
+        
+        with col2:
+            # Copy to clipboard
+            if st.button("📋 Copy to Clipboard", use_container_width=True):
+                st.session_state.clipboard_content = export_content
+                st.success("✅ Content ready to copy! Use Ctrl+C from the text area below.")
+                st.text_area("Paper Content", export_content, height=200, key="export_textarea")
+        
+        with col3:
+            # PDF Export (simplified)
+            if st.button("🖨️ Generate PDF Preview", use_container_width=True):
+                st.info("PDF generation would require additional setup.")
+                st.markdown("""
+                **For PDF export, you would need:**
+                1. Install `reportlab` or `fpdf`
+                2. Create a PDF generation function
+                3. Format content with proper styling
+                
+                Currently exporting as text file.
+                """)
+        
+        # ==================== TEACHER MODE TOGGLE ====================
+        st.divider()
+        with st.expander("👨‍🏫 Teacher Options"):
+            teacher_mode = st.toggle("Enable Teacher Mode", value=st.session_state.get("teacher_mode", False))
+            st.session_state.teacher_mode = teacher_mode
+            
+            if teacher_mode:
+                st.success("Teacher mode enabled - answers are visible")
+                
+                # Show answer key
+                st.markdown("### 📝 Answer Key")
+                answer_key_content = ""
+                for section in sections:
+                    for q in section.get("questions", []):
+                        answer = q.get("answer")
+                        if answer:
+                            answer_key_content += f"Q{q['question_number']}: {answer}\n"
+                
+                if answer_key_content:
+                    st.text_area("Answer Key", answer_key_content, height=200)
+                else:
+                    st.warning("No answers available in the paper data.")
 
 # ============================================================================
 # TAB 3: ASSIGNMENT GENERATOR
@@ -2082,6 +2703,34 @@ with tab3:
     
     st.divider()
     
+    # Document-based generation option
+    st.markdown("### 📄 Document-Based Generation (Optional)")
+    
+    use_assign_document = st.checkbox("📤 Use document content to generate assignment", value=False, key="assign_use_doc")
+    assign_document_text = None
+    
+    if use_assign_document:
+        assign_uploaded_file = st.file_uploader(
+            "📁 Upload document (PDF, DOCX, or TXT)",
+            type=["pdf", "docx", "txt"],
+            key="assign_doc_upload"
+        )
+        
+        if assign_uploaded_file:
+            try:
+                assign_status_placeholder = st.empty()
+                assign_status_placeholder.info("📖 Extracting document content...")
+                assign_document_text = extract_document_text(assign_uploaded_file)
+                assign_status_placeholder.success(f"✅ Extracted {len(assign_document_text)} characters from document")
+                
+                with st.expander("👁️ Preview extracted text"):
+                    st.text_area("", value=assign_document_text[:500] + "...", height=150, disabled=True)
+            except Exception as e:
+                st.error(f"❌ Error processing document: {str(e)}")
+                assign_document_text = None
+    
+    st.divider()
+    
     col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
     with col_btn2:
         if st.button("🚀 Generate Assignment", type="primary", use_container_width=True, key="assign_generate"):
@@ -2097,25 +2746,42 @@ with tab3:
                 status_text.info("🔄 Creating diverse tasks and code files...")
                 progress_bar.progress(40)
                 
-                response = client.generate_assignment(
-                    name=assign_name,
-                    course_code=assign_code,
-                    subject=assign_subject,
-                    topic=assign_topic if assign_topic else assign_subject,
-                    assignment_type=assignment_type,
-                    difficulty=assign_level,
-                    max_marks=total_points,
-                    duration_days=due_days,
-                    num_tasks=assign_num,
-                    description=assign_description,
-                    include_solutions=include_solutions,
-                    include_starter_code=include_starter,
-                    include_test_cases=include_tests
-                )
+                # If document is provided, use document-based generation
+                if assign_document_text:
+                    response = client.generate_assignment_from_document(
+                        document_text=assign_document_text,
+                        name=assign_name,
+                        course_code=assign_code,
+                        subject=assign_subject,
+                        assignment_type=assignment_type,
+                        difficulty=assign_level,
+                        max_marks=total_points,
+                        duration_days=due_days,
+                        num_tasks=assign_num,
+                        description=assign_description
+                    )
+                else:
+                    response = client.generate_assignment(
+                        name=assign_name,
+                        course_code=assign_code,
+                        subject=assign_subject,
+                        topic=assign_topic if assign_topic else assign_subject,
+                        assignment_type=assignment_type,
+                        difficulty=assign_level,
+                        max_marks=total_points,
+                        duration_days=due_days,
+                        num_tasks=assign_num,
+                        description=assign_description,
+                        include_solutions=include_solutions,
+                        include_starter_code=include_starter,
+                        include_test_cases=include_tests
+                    )
+
                 
                 progress_bar.progress(80)
                 
-                assignment_data = response.get('data', {})
+                # Extract assignment data from response
+                assignment_data = response
                 tasks = assignment_data.get('tasks', [])
                 
                 progress_bar.progress(100)
@@ -2296,10 +2962,200 @@ TASKS:
                         use_container_width=True
                     )
                 
+                # Chat-based feedback section
+                st.divider()
+                
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
                 import traceback
                 st.code(traceback.format_exc())
+
+
+# ============================================================================
+# TAB 4: CUSTOMISED QUESTION GENERATION WITH CHAT
+# ============================================================================
+
+with tab4:
+    display_header("💬 Customised Q&A Generation", "Chat-based question generation with Bloom's Taxonomy")
+    
+    st.markdown("### 🎯 Setup")
+    
+    # Configuration columns
+    col1, col2 = st.columns(2, gap="large")
+    
+    with col1:
+        chat_topic = st.text_input(
+            " Chat Topic",
+            placeholder="e.g., Machine Learning Algorithms, Database Design, Web Security...",
+            key="chat_topic"
+        )
+    
+    with col2:
+        chat_difficulty = st.selectbox(
+            " Difficulty Level",
+            get_difficulty_levels(),
+            key="chat_difficulty"
+        )
+    
+    # Bloom's Taxonomy levels selection
+    st.markdown("**📚 Bloom's Taxonomy Levels**")
+    bloom_levels = ["Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"]
+    
+    col_bloom1, col_bloom2, col_bloom3 = st.columns(3)
+    selected_blooms = []
+    
+    with col_bloom1:
+        if st.checkbox("Remember (Level 1)", value=True, key="bloom_remember"):
+            selected_blooms.append("Remember")
+        if st.checkbox("Understand (Level 2)", value=True, key="bloom_understand"):
+            selected_blooms.append("Understand")
+    
+    with col_bloom2:
+        if st.checkbox("Apply (Level 3)", value=True, key="bloom_apply"):
+            selected_blooms.append("Apply")
+        if st.checkbox("Analyze (Level 4)", value=False, key="bloom_analyze"):
+            selected_blooms.append("Analyze")
+    
+    with col_bloom3:
+        if st.checkbox("Evaluate (Level 5)", value=False, key="bloom_evaluate"):
+            selected_blooms.append("Evaluate")
+        if st.checkbox("Create (Level 6)", value=False, key="bloom_create"):
+            selected_blooms.append("Create")
+    
+    st.divider()
+    
+    # Chat history initialization
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+    
+    if "custom_questions" not in st.session_state:
+        st.session_state.custom_questions = []
+    
+    # Chat interface
+    st.markdown("### 💭 Chat Interaction")
+    
+    # Display chat history
+    chat_container = st.container(height=400, border=True)
+    with chat_container:
+        for i, msg in enumerate(st.session_state.chat_history):
+            if msg["role"] == "user":
+                st.write(f"**You:** {msg['content']}")
+            else:
+                st.write(f"**AI:** {msg['content']}")
+    
+    st.markdown("---")
+    
+    # Chat input and controls
+    chat_col1, chat_col2 = st.columns([5, 1], gap="small")
+    
+    with chat_col1:
+        user_input = st.text_input(
+            " Your message",
+            placeholder="Ask for questions, modify topics, request specific focus areas...",
+            key="chat_input"
+        )
+    
+    with chat_col2:
+        if st.button("📤 Send", use_container_width=True, key="send_msg"):
+            if user_input and chat_topic:
+                with st.spinner("Processing your request..."):
+                    try:
+                        # Add user message to history
+                        st.session_state.chat_history.append({
+                            "role": "user",
+                            "content": user_input
+                        })
+                        
+                        # Call API for chat-based question generation
+                        client = st.session_state.api_client
+                        response = client.generate_questions(
+                            subject=chat_topic,
+                            question_type="Multiple Choice",
+                            difficulty=chat_difficulty,
+                            count=1,
+                            additional_context=user_input
+                        )
+                        
+                        # Extract questions from response.data
+                        questions_list = response.get("data", []) if response else []
+                        if response and questions_list:
+                            question = questions_list[0] if questions_list else None
+                            if question:
+                                # Extract question text from question object
+                                question_text = question.get('question_text') or question.get('question') or str(question)
+                                st.session_state.custom_questions.append({
+                                    "question": question_text,
+                                    "bloom_level": user_input,
+                                    "timestamp": datetime.now().isoformat(),
+                                    "full_data": question
+                                })
+                                
+                                ai_response = f"Generated question with {chat_difficulty} difficulty for topic '{chat_topic}': {question_text}"
+                            else:
+                                ai_response = "Could not generate question. Please try again."
+                        else:
+                            ai_response = "Error in generation. Please try again."
+                        
+                        # Add AI response to history
+                        st.session_state.chat_history.append({
+                            "role": "assistant",
+                            "content": ai_response
+                        })
+                        
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+                        st.session_state.chat_history.append({
+                            "role": "assistant",
+                            "content": f"Error occurred: {str(e)}"
+                        })
+            else:
+                if not chat_topic:
+                    st.warning("Please enter a chat topic first")
+    
+    st.divider()
+    
+    # Display generated questions
+    if st.session_state.custom_questions:
+        st.markdown("### ✅ Generated Questions")
+        
+        for i, q_data in enumerate(st.session_state.custom_questions, 1):
+            with st.expander(f"Question {i} - {q_data['bloom_level']}", expanded=False):
+                st.write(q_data["question"])
+                
+                col_export = st.columns([1, 1, 1])
+                with col_export[0]:
+                    if st.button(f"📋 Copy", key=f"copy_q_{i}"):
+                        st.toast("Copied to clipboard!")
+                
+                with col_export[1]:
+                    if st.button(f"❌ Remove", key=f"remove_q_{i}"):
+                        st.session_state.custom_questions.pop(i-1)
+                        st.rerun()
+        
+        # Export options
+        st.markdown("### 📥 Export Generated Questions")
+        
+        export_col1, export_col2 = st.columns(2)
+        
+        with export_col1:
+            if st.button("📄 Export as JSON", use_container_width=True):
+                json_data = json.dumps(st.session_state.custom_questions, indent=2)
+                st.download_button(
+                    label="Download JSON",
+                    data=json_data,
+                    file_name=f"customized_questions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json"
+                )
+        
+        with export_col2:
+            if st.button("🧹 Clear All", use_container_width=True):
+                st.session_state.custom_questions = []
+                st.session_state.chat_history = []
+                st.rerun()
+    else:
+        st.info("💡 Start chatting to generate customised questions! Select Bloom's taxonomy levels above and ask questions or request specific topics.")
 
 
 if __name__ == "__main__":

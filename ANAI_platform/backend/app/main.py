@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 
 from backend.app.config import get_settings, logger
 from backend.app.middleware import LoggingMiddleware
-from backend.app.routers import health, questions, plagiarism, papers
+from backend.app.routers import health, questions, plagiarism, papers_enhanced, documents
 from backend.app.utils import get_logger
 
 # Get logger
@@ -71,7 +71,8 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(questions.router, prefix=settings.API_V1_STR)
     app.include_router(plagiarism.router, prefix=settings.API_V1_STR)
-    app.include_router(papers.router, prefix=settings.API_V1_STR)
+    app.include_router(papers_enhanced.router, prefix=settings.API_V1_STR)
+    app.include_router(documents.router, prefix=settings.API_V1_STR)
 
     # Root endpoint
     @app.get("/", tags=["root"])
