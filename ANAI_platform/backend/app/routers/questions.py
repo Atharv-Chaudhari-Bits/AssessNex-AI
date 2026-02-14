@@ -4,8 +4,8 @@ Questions endpoints router.
 Handles all question generation and retrieval endpoints.
 """
 
-from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
+from fastapi import APIRouter, HTTPException, Query, File, UploadFile
+from typing import Optional, List, Dict, Any
 import json
 from backend.app.schemas import (
     QuestionGenerationRequest,
@@ -13,17 +13,26 @@ from backend.app.schemas import (
     SubjectListResponse,
     Question,
     ErrorResponse,
+    CustomizedQuestionRequest,
+    BloomLevel,
 )
 from backend.app.config import get_settings
-from backend.app.agents import get_agent
+from backend.app.agents import (
+    get_agent,
+    get_customized_agent,
+    BLOOM_TAXONOMY_LEVELS,
+)
 from backend.app.utils import (
     get_logger,
     validate_subject,
     validate_question_type,
     validate_difficulty_level,
+    validate_bloom_level,
     get_current_timestamp,
+    parse_document_bytes,
+    extract_key_sections,
 )
-
+import httpx
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/questions", tags=["questions"])
@@ -47,133 +56,11 @@ async def get_subjects() -> SubjectListResponse:
     """
     try:
         settings = get_settings()
-
         logger.info("Fetching available subjects")
-
         return SubjectListResponse(subjects=settings.SUBJECTS)
-
     except Exception as e:
         logger.error(f"Error fetching subjects: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch subjects")
-
-
-@router.post(
-    "/generate",
-    response_model=QuestionGenerationResponse,
-    summary="Generate Questions",
-    description="Generate AI/ML questions based on specified criteria"
-)
-async def generate_questions(
-    request: QuestionGenerationRequest,
-) -> QuestionGenerationResponse:
-    """
-    Generate questions based on request parameters.
-
-    Args:
-        request: Question generation request with subject, type, difficulty, etc.
-
-    Returns:
-        QuestionGenerationResponse: Generated questions with metadata
-
-    Raises:
-        HTTPException: If validation or generation fails
-
-    Example:
-        POST /api/v1/questions/generate
-        {
-            "subject": "Machine Learning",
-            "question_type": "Multiple Choice",
-            "difficulty_level": "Hard",
-            "num_questions": 5
-        }
-    """
-    try:
-        logger.info(
-            f"Question generation request: subject={request.subject}, "
-            f"type={request.question_type}, difficulty={request.difficulty_level}, "
-            f"count={request.num_questions}"
-        )
-
-        # Validate inputs
-        if not validate_subject(request.subject):
-            logger.warning(f"Invalid subject: {request.subject}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid subject: {request.subject}"
-            )
-
-        if not validate_question_type(request.question_type):
-            logger.warning(f"Invalid question type: {request.question_type}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid question type: {request.question_type}"
-            )
-
-        if not validate_difficulty_level(request.difficulty_level):
-            logger.warning(f"Invalid difficulty level: {request.difficulty_level}")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid difficulty level: {request.difficulty_level}"
-            )
-
-        # Get agent and generate questions
-        agent = get_agent()
-
-        questions_data = agent.generate_questions(
-            subject=request.subject,
-            question_type=request.question_type,
-            difficulty_level=request.difficulty_level,
-            num_questions=request.num_questions,
-            additional_context=request.additional_context or "",
-            diagram_format=request.diagram_format,
-        )
-
-        # Log raw questions data before conversion
-        logger.info(f"Raw questions data from agent: {len(questions_data)} questions")
-        for idx, q_data in enumerate(questions_data):
-            logger.info(f"\n[Question {idx + 1}] ======================")
-            logger.info(f"  Type: {type(q_data)}")
-            logger.info(f"  Keys: {q_data.keys() if isinstance(q_data, dict) else 'N/A'}")
-            if isinstance(q_data, dict):
-                logger.info(f"  Question: {q_data.get('question_text', 'N/A')[:100]}...")
-                logger.info(f"  Options: {q_data.get('options')}")
-                logger.info(f"  Options Type: {type(q_data.get('options'))}")
-                logger.info(f"  Answer: {q_data.get('expected_answer', 'N/A')}")
-                logger.info(f"  Explanation: {q_data.get('explanation', 'N/A')[:100]}...")
-                logger.info(f"  Tags: {q_data.get('tags')}")
-                logger.info(f"  Full data: {json.dumps(q_data, indent=2)}")
-
-        # Convert to Question objects
-        questions = [Question(**q) for q in questions_data]
-
-        logger.info(f"Successfully generated {len(questions)} questions")
-        for idx, q in enumerate(questions):
-            logger.info(f"\n[Converted Question {idx + 1}] ======================")
-            logger.info(f"  Question: {q.question_text[:100]}...")
-            logger.info(f"  Options: {q.options}")
-            logger.info(f"  Answer: {q.expected_answer}")
-
-        return QuestionGenerationResponse(
-            status="success",
-            message=f"Generated {len(questions)} questions successfully",
-            data=questions,
-            metadata={
-                "subject": request.subject,
-                "question_type": request.question_type,
-                "difficulty_level": request.difficulty_level,
-                "num_questions": len(questions),
-                "timestamp": get_current_timestamp(),
-            },
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error generating questions: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate questions: {str(e)}"
-        )
 
 
 @router.get(
@@ -194,84 +81,447 @@ async def get_question_info() -> dict:
     """
     try:
         settings = get_settings()
-
         logger.info("Fetching question generation info")
-
         return {
             "question_types": settings.QUESTION_TYPES,
             "difficulty_levels": settings.DIFFICULTY_LEVELS,
+            "bloom_levels": BLOOM_TAXONOMY_LEVELS,
             "default_questions": settings.DEFAULT_QUESTIONS_COUNT,
             "max_questions": settings.MAX_QUESTIONS_COUNT,
         }
-
     except Exception as e:
         logger.error(f"Error fetching question info: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to fetch question info"
+        raise HTTPException(status_code=500, detail="Failed to fetch question info")
+
+
+@router.post(
+    "/generate",
+    response_model=QuestionGenerationResponse,
+    summary="Generate Questions",
+    description="Generate AI/ML questions based on specified criteria"
+)
+async def generate_questions(
+    request: QuestionGenerationRequest,
+) -> QuestionGenerationResponse:
+    """
+    Generate questions based on request parameters.
+
+    Args:
+        request: Question generation request with subject, type, difficulty, etc.
+
+    Returns:
+        QuestionGenerationResponse: Generated questions with metadata
+    """
+    try:
+        logger.info(
+            f"Question generation request: subject={request.subject}, "
+            f"type={request.question_type}, difficulty={request.difficulty_level}, "
+            f"count={request.num_questions}"
         )
 
+        # Validate inputs
+        if not validate_subject(request.subject.value if hasattr(request.subject, 'value') else str(request.subject)):
+            raise HTTPException(status_code=400, detail=f"Invalid subject: {request.subject}")
+
+        if not validate_question_type(request.question_type.value if hasattr(request.question_type, 'value') else str(request.question_type)):
+            raise HTTPException(status_code=400, detail=f"Invalid question type: {request.question_type}")
+
+        if not validate_difficulty_level(request.difficulty_level.value if hasattr(request.difficulty_level, 'value') else str(request.difficulty_level)):
+            raise HTTPException(status_code=400, detail=f"Invalid difficulty level: {request.difficulty_level}")
+
+        # Get agent and generate questions
+        agent = get_agent()
+        questions_data = agent.generate_questions(
+            subject=request.subject.value if hasattr(request.subject, 'value') else str(request.subject),
+            question_type=request.question_type.value if hasattr(request.question_type, 'value') else str(request.question_type),
+            difficulty_level=request.difficulty_level.value if hasattr(request.difficulty_level, 'value') else str(request.difficulty_level),
+            num_questions=request.num_questions,
+            additional_context=request.additional_context or "",
+            diagram_format=request.diagram_format,
+        )
+
+        # Convert to Question objects
+        questions = [Question(**q) for q in questions_data]
+
+        logger.info(f"Successfully generated {len(questions)} questions")
+        return QuestionGenerationResponse(
+            status="success",
+            message=f"Generated {len(questions)} questions successfully",
+            data=questions,
+            metadata={
+                "subject": request.subject.value if hasattr(request.subject, 'value') else str(request.subject),
+                "question_type": request.question_type.value if hasattr(request.question_type, 'value') else str(request.question_type),
+                "difficulty_level": request.difficulty_level.value if hasattr(request.difficulty_level, 'value') else str(request.difficulty_level),
+                "num_questions": len(questions),
+                "timestamp": get_current_timestamp(),
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating questions: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate questions: {str(e)}")
+
+
+# ========================================================================
+# BLOOM'S TAXONOMY CUSTOMIZED QUESTION ENDPOINTS
+# ========================================================================
 
 @router.post(
     "/customized",
     response_model=QuestionGenerationResponse,
-    summary="Generate Customized Question with Chat",
-    description="Generate question based on topic, difficulty, Bloom's taxonomy levels, and chat context"
+    summary="Generate Customized Question with Bloom's Taxonomy",
+    description="Generate question calibrated to specific Bloom's taxonomy level with optional document context"
 )
 async def generate_customized_question(
+    request: CustomizedQuestionRequest,  # Use request body instead of query params
+) -> QuestionGenerationResponse:
+    """
+    Generate a customized question calibrated to a specific Bloom's taxonomy level.
+    
+    This endpoint supports document context and chat-based customization.
+    Uses the CustomizedQuestionRequest schema for validation.
+    
+    Args:
+        request: Customized question request with topic, bloom_level, etc.
+    
+    Returns:
+        QuestionGenerationResponse: Generated question with Bloom's calibration
+    """
+    try:
+        # Extract values from request
+        topic = request.topic
+        bloom_level = request.bloom_level.value if hasattr(request.bloom_level, 'value') else str(request.bloom_level)
+        question_type = request.question_type.value if hasattr(request.question_type, 'value') else str(request.question_type)
+        chat_context = request.chat_context or ""
+        topic_focus = request.topic_focus or ""
+        document_text = request.document_text
+        additional_context = request.additional_context
+        require_bloom_justification = request.require_bloom_justification
+
+        logger.info(f"Customized question request: topic={topic}, bloom_level={bloom_level}, type={question_type}")
+
+        # Validate inputs
+        if not validate_subject(topic):
+            raise HTTPException(status_code=400, detail=f"Invalid topic: {topic}")
+        
+        if not validate_question_type(question_type):
+            raise HTTPException(status_code=400, detail=f"Invalid question type: {question_type}")
+        
+        if not validate_bloom_level(bloom_level):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid Bloom's level: {bloom_level}. Must be one of: {', '.join(BLOOM_TAXONOMY_LEVELS)}"
+            )
+        
+        # Parse topic focus
+        topic_focus_list = [tf.strip() for tf in topic_focus.split(",")] if topic_focus else []
+        
+        # Combine all context sources
+        full_context_parts = []
+        
+        if chat_context:
+            full_context_parts.append(f"User Request: {chat_context}")
+        
+        if document_text:
+            # Extract key sections from document if it's long
+            if len(document_text) > 5000:
+                document_text = extract_key_sections(document_text, max_length=5000)
+            full_context_parts.append(f"Document Context:\n{document_text}")
+        
+        if additional_context:
+            full_context_parts.append(f"Additional Context: {additional_context}")
+        
+        if topic_focus_list:
+            full_context_parts.append(f"Focus Topics: {', '.join(topic_focus_list)}")
+        
+        enhanced_context = "\n\n".join(full_context_parts) if full_context_parts else ""
+        
+        # Add Bloom's calibration instructions
+        enhanced_context += f"""
+        
+CALIBRATION INSTRUCTION:
+- Bloom's Taxonomy Level: {bloom_level} - This is the EXACT cognitive level required
+- Use action verbs appropriate for {bloom_level} level
+- Do NOT generate questions at lower levels (Remember/Understand) or higher levels (Evaluate/Create)
+- Each question must clearly demonstrate {bloom_level} level thinking
+"""
+        
+        if require_bloom_justification:
+            enhanced_context += f"- In the explanation, explicitly justify why this question targets the {bloom_level} level\n"
+        
+        # Get the customized agent
+        agent = get_customized_agent()
+        
+        # Generate calibrated question
+        questions = agent.generate_customized_questions(
+            subject=topic,
+            question_type=question_type,
+            bloom_level=bloom_level,
+            num_questions=1,
+            additional_context=enhanced_context,
+            topic_focus=topic_focus_list if topic_focus_list else None,
+            require_bloom_justification=require_bloom_justification
+        )
+        
+        if not questions:
+            raise HTTPException(status_code=500, detail="Failed to generate customized question")
+        
+        # Format response
+        question_data = questions[0]
+        
+        # Prepare metadata
+        metadata = {
+            "calibration_type": "bloom_taxonomy",
+            "bloom_level": bloom_level,
+            "cognitive_demand": question_data.get("cognitive_demand", ""),
+            "has_bloom_justification": question_data.get("has_bloom_justification", False),
+            "generation_method": "customized_bloom_calibration",
+            "chat_context_used": bool(chat_context),
+            "document_context_used": bool(document_text),
+            "topic_focus_applied": bool(topic_focus_list),
+            "additional_context_used": bool(additional_context)
+        }
+        
+        # Include all selected levels if available
+        if "all_levels" in question_data:
+            metadata["included_levels"] = question_data["all_levels"]
+        
+        # Create Question object
+        question = Question(
+            id=question_data.get("question_id", f"q_{get_current_timestamp()}"),
+            subject=question_data.get("subject", topic),
+            question_type=question_data.get("question_type", question_type),
+            difficulty_level=question_data.get("difficulty_level"),
+            bloom_level=question_data.get("bloom_level", bloom_level),
+            question_text=question_data.get("question_text", ""),
+            options=question_data.get("options"),
+            expected_answer=question_data.get("expected_answer", ""),
+            explanation=question_data.get("explanation", ""),
+            tags=question_data.get("tags", []),
+            metadata=metadata
+        )
+        
+        response = QuestionGenerationResponse(
+            status="success",
+            message=f"Generated {bloom_level} level question successfully",
+            data=[question],
+            metadata=metadata
+        )
+        
+        logger.info(f"Customized question generated for topic: {topic} at Bloom's level: {bloom_level}")
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating customized question: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate customized question: {str(e)}")
+
+
+@router.post(
+    "/customized/with-document",
+    response_model=QuestionGenerationResponse,
+    summary="Generate Customized Question with Document Upload",
+    description="Upload a document and generate a Bloom's taxonomy calibrated question from its content"
+)
+async def generate_customized_question_with_document(
     topic: str = Query(..., description="Topic for question generation"),
-    difficulty: str = Query(..., description="Difficulty level"),
-    bloom_levels: str = Query("Remember,Understand,Apply", description="Comma-separated Bloom's taxonomy levels"),
+    bloom_level: BloomLevel = Query(..., description="Bloom's taxonomy level"),
+    question_type: str = Query("Multiple Choice", description="Type of question"),
+    chat_context: str = Query("", description="User's chat message"),
+    topic_focus: str = Query("", description="Comma-separated subtopics"),
+    additional_context: Optional[str] = Query(None, description="Additional context"),
+    require_bloom_justification: bool = Query(True, description="Whether to include justification"),
+    file: UploadFile = File(..., description="Document file to upload (PDF, DOCX, TXT)")
+):
+    """
+    Generate a customized question with document upload.
+    First parses the document using the documents endpoints, then generates question with extracted context.
+    """
+    try:
+        if not file:
+            raise HTTPException(status_code=400, detail="No file uploaded")
+        
+        logger.info(f"Processing document upload: {file.filename}, type: {file.content_type}")
+        
+        # Read file bytes
+        file_bytes = await file.read()
+        
+        # Determine which parsing endpoint to call
+        document_text = None
+        base_url = str(get_settings().API_BASE_URL).rstrip('/')
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                if file.content_type == "application/pdf" or file.filename.lower().endswith('.pdf'):
+                    # Call the parse-pdf endpoint
+                    logger.info("Calling PDF parse endpoint")
+                    files = {"file": (file.filename, file_bytes, file.content_type)}
+                    response = await client.post(
+                        f"{base_url}/api/v1/documents/parse-pdf",
+                        files=files
+                    )
+                    if response.status_code == 200:
+                        result = response.json()
+                        document_text = result.get("text")
+                        logger.info(f"PDF parsed: {len(document_text)} characters")
+                
+                elif file.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or file.filename.lower().endswith('.docx'):
+                    # Call the parse-docx endpoint
+                    logger.info("Calling DOCX parse endpoint")
+                    files = {"file": (file.filename, file_bytes, file.content_type)}
+                    response = await client.post(
+                        f"{base_url}/api/v1/documents/parse-docx",
+                        files=files
+                    )
+                    if response.status_code == 200:
+                        result = response.json()
+                        document_text = result.get("text")
+                        logger.info(f"DOCX parsed: {len(document_text)} characters")
+                
+                else:
+                    # For text files, decode directly
+                    try:
+                        document_text = file_bytes.decode('utf-8')
+                        logger.info(f"Text file read directly: {len(document_text)} characters")
+                    except:
+                        raise HTTPException(status_code=400, detail="Unsupported file type or encoding")
+        
+        except Exception as e:
+            logger.error(f"Document parsing failed: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Failed to parse document: {str(e)}")
+        
+        if not document_text:
+            raise HTTPException(status_code=400, detail="No text could be extracted from document")
+        
+        # Create request object
+        request = CustomizedQuestionRequest(
+            topic=topic,
+            bloom_level=bloom_level,
+            question_type=question_type,
+            chat_context=chat_context,
+            topic_focus=topic_focus,
+            document_text=document_text,
+            additional_context=additional_context,
+            require_bloom_justification=require_bloom_justification
+        )
+        
+        # Call the main customized endpoint
+        return await generate_customized_question(request)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in document-based question generation: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post(
+    "/customized/batch",
+    response_model=List[QuestionGenerationResponse],
+    summary="Generate Multiple Customized Questions",
+    description="Generate multiple questions with specified Bloom's taxonomy levels"
+)
+async def generate_customized_questions_batch(
+    requests: List[CustomizedQuestionRequest]
+) -> List[QuestionGenerationResponse]:
+    """
+    Generate multiple customized questions in batch.
+    
+    Each request should be a valid CustomizedQuestionRequest object.
+    
+    Args:
+        requests: List of CustomizedQuestionRequest objects
+        
+    Returns:
+        List[QuestionGenerationResponse]: Generated questions
+    """
+    responses = []
+    errors = []
+    
+    for idx, req in enumerate(requests):
+        try:
+            logger.info(f"Processing batch request {idx + 1}/{len(requests)}")
+            response = await generate_customized_question(req)
+            responses.append(response)
+        except Exception as e:
+            error_msg = f"Request {idx + 1} failed: {str(e)}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+            # Continue with other requests
+    
+    if errors and not responses:
+        raise HTTPException(status_code=500, detail="All batch requests failed")
+    
+    return responses
+
+
+@router.post(
+    "/customized/legacy",
+    response_model=QuestionGenerationResponse,
+    summary="Generate Customized Question (Legacy)",
+    description="Legacy endpoint with traditional difficulty levels - maps to Bloom's taxonomy"
+)
+async def generate_customized_question_legacy(
+    topic: str = Query(..., description="Topic for question generation"),
+    difficulty: str = Query("Medium", description="Difficulty level (Easy, Medium, Hard)"),
     chat_context: str = Query("", description="Chat context or user input for customization"),
     question_type: str = Query("Multiple Choice", description="Type of question")
 ) -> QuestionGenerationResponse:
     """
-    Generate a customized question based on chat interaction.
+    Legacy endpoint that maps traditional difficulty levels to Bloom's taxonomy.
+    """
+    # Map traditional difficulty to Bloom's level
+    difficulty_to_bloom = {
+        "Easy": "Remember",
+        "Medium": "Apply",
+        "Hard": "Analyze"
+    }
     
-    Args:
-        topic: Main topic for question
-        difficulty: Difficulty level (Easy, Medium, Hard)
-        bloom_levels: Comma-separated Bloom's taxonomy levels
-        chat_context: User's chat message or context
-        question_type: Type of question to generate
+    bloom_level = difficulty_to_bloom.get(difficulty, "Understand")
     
-    Returns:
-        QuestionGenerationResponse: Generated customized question
+    # Create request object
+    request = CustomizedQuestionRequest(
+        topic=topic,
+        bloom_level=bloom_level,
+        question_type=question_type,
+        chat_context=chat_context,
+        topic_focus="",
+        require_bloom_justification=True
+    )
     
-    Example:
-        POST /api/v1/questions/customized?topic=Machine Learning&difficulty=Medium&bloom_levels=Understand,Apply&chat_context=Focus on algorithms
+    # Call the main endpoint with mapped Bloom's level
+    return await generate_customized_question(request)
+
+
+@router.get(
+    "/customized/bloom-levels",
+    response_model=Dict[str, Any],
+    summary="Get Bloom's Taxonomy Levels",
+    description="Get available Bloom's taxonomy levels with descriptions"
+)
+async def get_bloom_levels_with_descriptions():
+    """
+    Get Bloom's taxonomy levels with descriptions and action verbs.
     """
     try:
-        validate_subject(topic)
-        validate_difficulty_level(difficulty)
-        validate_question_type(question_type)
+        agent = get_customized_agent()
+        levels = {}
         
-        # Construct context with Bloom's taxonomy and chat
-        bloom_list = [b.strip() for b in bloom_levels.split(",") if b.strip()]
-        full_context = f"Topic: {topic}. Bloom's Taxonomy Levels: {', '.join(bloom_list)}. User Request: {chat_context}"
+        for level in BLOOM_TAXONOMY_LEVELS:
+            levels[level] = agent.BLOOM_LEVELS.get(level, {
+                "description": "No description available",
+                "keywords": [],
+                "cognitive_demand": "Unknown",
+                "question_style": "Unknown"
+            })
         
-        # Create question generation request
-        request = QuestionGenerationRequest(
-            subject=topic,
-            question_type=question_type,
-            difficulty=difficulty,
-            count=1,
-            additional_context=full_context
-        )
+        return {
+            "levels": BLOOM_TAXONOMY_LEVELS,
+            "details": levels
+        }
         
-        # Generate question using agent
-        agent = get_agent()
-        response = await agent.generate_questions(request)
-        
-        logger.info(f"Customized question generated for topic: {topic}")
-        return response
-        
-    except ValueError as ve:
-        logger.error(f"Validation error: {str(ve)}")
-        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        logger.error(f"Error generating customized question: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to generate customized question"
-        )
+        logger.error(f"Error fetching Bloom levels: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to fetch Bloom's taxonomy levels")

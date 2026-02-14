@@ -8,7 +8,7 @@ This module handles the initialization and interaction with multiple LLM provide
 
 Uses the LangChain library for unified interface across providers.
 """
-
+from typing import Dict, Any
 import time
 import random
 from functools import wraps
@@ -118,6 +118,68 @@ class LLMClient:
 
         except Exception as e:
             logger.error(f"Failed to initialize LLM Client: {str(e)}")
+            raise
+
+    def create_completion(  # Remove 'async' keyword
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int = 2000,
+        response_format: Optional[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Create a completion using the LLM with message list format.
+        """
+        try:
+            logger.info(f"Creating completion with {len(messages)} messages")
+            
+            # Extract system message if present
+            system_message = None
+            user_prompt = ""
+            
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_message = msg["content"]
+                elif msg["role"] == "user":
+                    user_prompt = msg["content"]
+            
+            # Add JSON instruction if response_format is specified
+            if response_format and response_format.get("type") == "json_object":
+                if system_message:
+                    system_message += "\n\nIMPORTANT: Your response MUST be valid JSON format only, no other text, explanations, or markdown."
+                else:
+                    system_message = "IMPORTANT: Your response MUST be valid JSON format only, no other text, explanations, or markdown."
+            
+            # Generate the response using your existing generate_message method
+            content = self.generate_message(
+                prompt=user_prompt,
+                system_message=system_message
+            )
+            
+            # For JSON format, try to clean the response if needed
+            if response_format and response_format.get("type") == "json_object":
+                # Remove any markdown code blocks if present
+                if content.startswith('```json'):
+                    content = content[7:]
+                elif content.startswith('```'):
+                    content = content[3:]
+                if content.endswith('```'):
+                    content = content[:-3]
+                content = content.strip()
+            
+            logger.info(f"Successfully created completion, response length: {len(content)}")
+            
+            return {
+                "content": content,
+                "model": getattr(self, 'model', 'unknown'),
+                "usage": {
+                    "total_tokens": len(content.split()) + len(user_prompt.split())
+                },
+                "finish_reason": "stop"
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in create_completion: {str(e)}", exc_info=True)
             raise
 
     def _init_openai(self, settings):
@@ -337,3 +399,4 @@ def get_llm_client() -> LLMClient:
         >>> response = client.generate_message("Hello")
     """
     return LLMClient()
+

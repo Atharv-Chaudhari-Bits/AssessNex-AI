@@ -32,6 +32,8 @@ class QuestionType(str, Enum):
     COMPLEXITY = "Complexity Analysis"
     NUMERICAL_PROBLEM = "Numerical Problem"
     DIAGRAM_BASED = "Diagram-Based"
+    CODE_BASED = "Code-Based"  # ADD THIS
+    CODING_PROBLEM = "Coding Problem"  # ADD THIS
     ASSIGNMENT = "Assignment"
     QUESTION_PAPER = "Question Paper"
 
@@ -46,6 +48,16 @@ class Subject(str, Enum):
     REINFORCEMENT_LEARNING = "Reinforcement Learning"
     DATA_SCIENCE = "Data Science"
     CRYPTOGRAPHY = "Cryptography"
+
+
+class BloomLevel(str, Enum):
+    """Bloom's Taxonomy Levels for pedagogical alignment."""
+    REMEMBER = "Remember"
+    UNDERSTAND = "Understand"
+    APPLY = "Apply"
+    ANALYZE = "Analyze"
+    EVALUATE = "Evaluate"
+    CREATE = "Create"
 
 
 class QuestionGenerationRequest(BaseModel):
@@ -97,6 +109,95 @@ class QuestionGenerationRequest(BaseModel):
         return value
 
 
+class CustomizedQuestionRequest(BaseModel):
+    """
+    Request model for customized Bloom's taxonomy questions.
+    
+    Attributes:
+        topic: Main topic/subject for question
+        bloom_level: Bloom's taxonomy level
+        question_type: Type of question to generate
+        chat_context: User's chat message or context
+        topic_focus: Comma-separated specific subtopics
+        document_text: Extracted text from uploaded document
+        additional_context: Additional context from user
+        require_bloom_justification: Whether to include Bloom's level justification
+    """
+    topic: str = Field(..., description="Main topic/subject for question")
+    bloom_level: BloomLevel = Field(..., description="Bloom's taxonomy level")
+    question_type: QuestionType = Field(QuestionType.MULTIPLE_CHOICE, description="Type of question")
+    chat_context: Optional[str] = Field("", description="Chat context or user input")
+    topic_focus: Optional[str] = Field("", description="Comma-separated subtopics")
+    document_text: Optional[str] = Field(None, description="Extracted text from uploaded document")
+    additional_context: Optional[str] = Field(None, description="Additional context")
+    require_bloom_justification: bool = Field(True, description="Whether to include Bloom's justification")
+    
+    @validator('topic')
+    def validate_topic(cls, v):
+        if not v or not v.strip():
+            raise ValueError("topic cannot be empty")
+        return v.strip()
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "topic": "Deep Learning",
+                "bloom_level": "Analyze",
+                "question_type": "Long Answer",
+                "chat_context": "Focus on transformer architectures",
+                "topic_focus": "Self-Attention, Multi-Head Attention",
+                "require_bloom_justification": True
+            }
+        }
+
+
+class BloomLevelInfo(BaseModel):
+    """
+    Schema for Bloom's taxonomy level information.
+    
+    Attributes:
+        level: Bloom's taxonomy level
+        description: Level description
+        cognitive_demand: Cognitive demand description
+        keywords: Action verbs for this level
+        question_style: Typical question style
+        icon: Icon representation for UI
+        color: Color code for UI
+    """
+    level: str = Field(..., description="Bloom's taxonomy level")
+    description: str = Field(..., description="Level description")
+    cognitive_demand: str = Field(..., description="Cognitive demand")
+    keywords: List[str] = Field(..., description="Action verbs for this level")
+    question_style: str = Field(..., description="Typical question style")
+    icon: Optional[str] = Field(None, description="Icon representation")
+    color: Optional[str] = Field(None, description="Color code for UI")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "level": "Analyze",
+                "description": "Draw connections among ideas",
+                "cognitive_demand": "Medium-High - distinguish, organize, attribute",
+                "keywords": ["analyze", "compare", "contrast", "differentiate", "examine"],
+                "question_style": "Break down concepts, find patterns, analyze relationships",
+                "icon": "🔍",
+                "color": "#9F7AEA"
+            }
+        }
+
+
+class BloomLevelsResponse(BaseModel):
+    """
+    Response providing available Bloom's taxonomy levels with details.
+    
+    Attributes:
+        levels: List of available Bloom's levels
+        details: Detailed information for each level
+    """
+    levels: List[str] = Field(..., description="Available Bloom's levels")
+    details: Dict[str, BloomLevelInfo] = Field(..., description="Detailed information for each level")
+
+
 class Question(BaseModel):
     """
     Model representing a single generated question.
@@ -106,26 +207,33 @@ class Question(BaseModel):
         subject: Subject area of the question
         question_type: Type of the question
         difficulty_level: Difficulty level of the question
+        bloom_level: Bloom's taxonomy level (optional)
         question_text: The actual question text
         options: Optional list of options for multiple choice questions
         expected_answer: Expected answer or answer key
         explanation: Detailed explanation for the answer
         tags: Optional tags for categorization
+        metadata: Additional metadata
     """
     id: str = Field(..., description="Unique question identifier")
     subject: str = Field(..., description="Subject area")
     question_type: str = Field(..., description="Type of question")
-    difficulty_level: str = Field(..., description="Difficulty level")
+    difficulty_level: Optional[str] = Field(None, description="Difficulty level")
+    bloom_level: Optional[str] = Field(None, description="Bloom's taxonomy level")
     question_text: str = Field(..., description="The question")
     options: Optional[List[str]] = Field(
         default=None,
         description="Options for multiple choice questions"
     )
     expected_answer: str = Field(..., description="Expected answer")
-    explanation: str = Field(..., description="Answer explanation")
+    explanation: Optional[str] = Field(None, description="Answer explanation")
     tags: Optional[List[str]] = Field(
         default=None,
         description="Tags for categorization"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        default_factory=dict,
+        description="Additional metadata"
     )
     
     class Config:
@@ -135,16 +243,12 @@ class Question(BaseModel):
     @validator("options", pre=True, always=True)
     def validate_options(cls, value):
         """Validate and fix options field."""
-        # If value is None, keep it None
         if value is None:
             return None
-        # If it's a boolean, convert to None
         if isinstance(value, bool):
             return None
-        # If it's a list, ensure all items are strings
         if isinstance(value, list):
             return [str(item) if item is not None else "" for item in value]
-        # For anything else, return None
         return None
 
 
@@ -360,16 +464,6 @@ class BatchPlagiarismCheckResponse(BaseModel):
     )
 
 
-class BloomLevel(str, Enum):
-    """Bloom's Taxonomy Levels for pedagogical alignment."""
-    REMEMBER = "Remember"
-    UNDERSTAND = "Understand"
-    APPLY = "Apply"
-    ANALYZE = "Analyze"
-    EVALUATE = "Evaluate"
-    CREATE = "Create"
-
-
 class QuestionTypeConfiguration(BaseModel):
     """Configuration for question type in a paper section."""
     type: str = Field(..., description="Question type (Multiple Choice, Short Answer, etc.)")
@@ -438,6 +532,7 @@ class PaperGenerationRequest(BaseModel):
         default=True,
         description="Enable explainability logging"
     )
+    
     # 🔥 NORMALIZE TO LIST[str]
     @validator("instructions", pre=True)
     def normalize_instructions(cls, v):
@@ -446,6 +541,7 @@ class PaperGenerationRequest(BaseModel):
         if isinstance(v, str):
             return [v]
         return v
+
 
 class PaperSection(BaseModel):
     """A section of a question paper."""
@@ -528,3 +624,10 @@ class DomainOntologyResponse(BaseModel):
     topics: List[str] = Field(..., description="Available topics")
     concepts: Dict[str, List[str]] = Field(..., description="Concepts per topic")
     recommendations: Dict[str, str] = Field(..., description="Recommendations per topic")
+
+
+# For backward compatibility, keep the original BloomLevelsResponse
+# but add the new one with a different name to avoid conflicts
+class BloomLevelsDetailedResponse(BloomLevelsResponse):
+    """Extended response with detailed Bloom's level information."""
+    details: Dict[str, BloomLevelInfo] = Field(..., description="Detailed information for each level")

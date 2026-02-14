@@ -2,58 +2,34 @@
 Agents package initialization.
 
 Exports agent classes and factory functions from modular structure.
-
-Package Structure:
-==================
-
-agents/
-├── base/                    # Base agent classes
-│   └── base_agent.py        # BaseFormattingAgent, AgentConfig, AgentResult
-│
-├── mermaid/                 # Mermaid diagram agents
-│   ├── flowchart_agent.py   # MermaidFlowchartAgent
-│   ├── sequence_agent.py    # MermaidSequenceAgent
-│   ├── class_agent.py       # MermaidClassAgent
-│   ├── state_agent.py       # MermaidStateAgent
-│   ├── er_agent.py          # MermaidERDAgent
-│   ├── gantt_agent.py       # MermaidGanttAgent
-│   ├── pie_agent.py         # MermaidPieAgent
-│   └── mindmap_agent.py     # MermaidMindmapAgent
-│
-├── ascii/                   # ASCII art agents
-│   ├── flowchart_agent.py   # ASCIIFlowchartAgent
-│   ├── box_agent.py         # ASCIIBoxAgent
-│   ├── table_agent.py       # ASCIITableAgent
-│   └── tree_agent.py        # ASCIITreeAgent
-│
-├── latex/                   # LaTeX/math agents
-│   ├── inline_agent.py      # InlineLaTeXAgent
-│   ├── block_agent.py       # BlockLaTeXAgent
-│   ├── math_agent.py        # MathExpressionAgent
-│   └── equation_agent.py    # EquationArrayAgent
-│
-├── code/                    # Code formatting agents
-│   ├── python_agent.py      # PythonCodeAgent
-│   ├── multi_lang_agent.py  # MultiLanguageCodeAgent
-│   └── explained_code_agent.py  # ExplainedCodeAgent
-│
-├── orchestration/           # Orchestration & supervision
-│   ├── orchestrator_agent.py    # OrchestratorAgent
-│   ├── supervisor_agent.py      # SupervisorAgent
-│   └── quality_control_agent.py # QualityControlAgent
-│
-├── question_generator.py    # QuestionGenerationAgent
-├── formatting_agents.py     # Legacy formatting pipeline
-└── specialized_agents.py    # Legacy specialized agents
 """
 
-# Core question generation
+# ==========================================
+# CORE QUESTION GENERATION - LEGACY
+# ==========================================
 from backend.app.agents.question_generator import (
     QuestionGenerationAgent,
     get_agent,
 )
 
-# Legacy formatting agents (for backward compatibility)
+# ==========================================
+# NEW: CUSTOMIZED QUESTION MODULE WITH BLOOM'S TAXONOMY
+# ==========================================
+from backend.app.agents.customized_question_module import (
+    CustomizedQuestionAgent,
+    get_customized_agent,
+)
+
+# ==========================================
+# NEW: ASSIGNMENT GENERATION AGENT WITH BLOOM'S TAXONOMY
+# ==========================================
+from backend.app.agents.assignment_agent import (
+    AssignmentGenerationAgent,
+)
+
+# ==========================================
+# LEGACY FORMATTING AGENTS
+# ==========================================
 from backend.app.agents.formatting_agents import (
     CodeFormatterAgent,
     LaTeXFormatterAgent,
@@ -61,7 +37,9 @@ from backend.app.agents.formatting_agents import (
     FormattingPipeline,
 )
 
-# Base agent classes
+# ==========================================
+# BASE AGENT CLASSES
+# ==========================================
 from backend.app.agents.base import (
     BaseFormattingAgent,
     AgentConfig,
@@ -70,7 +48,9 @@ from backend.app.agents.base import (
     ValidationLevel,
 )
 
-# Mermaid diagram agents
+# ==========================================
+# MERMAID DIAGRAM AGENTS
+# ==========================================
 from backend.app.agents.mermaid import (
     MermaidFlowchartAgent,
     MermaidSequenceAgent,
@@ -82,7 +62,9 @@ from backend.app.agents.mermaid import (
     MermaidMindmapAgent,
 )
 
-# ASCII art agents
+# ==========================================
+# ASCII ART AGENTS
+# ==========================================
 from backend.app.agents.ascii import (
     ASCIIFlowchartAgent,
     ASCIIBoxAgent,
@@ -90,7 +72,9 @@ from backend.app.agents.ascii import (
     ASCIITreeAgent,
 )
 
-# LaTeX/math agents
+# ==========================================
+# LATEX/MATH AGENTS
+# ==========================================
 from backend.app.agents.latex import (
     InlineLaTeXAgent,
     BlockLaTeXAgent,
@@ -98,21 +82,27 @@ from backend.app.agents.latex import (
     EquationArrayAgent,
 )
 
-# Code formatting agents
+# ==========================================
+# CODE FORMATTING AGENTS
+# ==========================================
 from backend.app.agents.code import (
     PythonCodeAgent,
     MultiLanguageCodeAgent,
     ExplainedCodeAgent,
 )
 
-# Orchestration agents
+# ==========================================
+# ORCHESTRATION AGENTS
+# ==========================================
 from backend.app.agents.orchestration import (
     OrchestratorAgent,
     SupervisorAgent,
     QualityControlAgent,
 )
 
-# Legacy imports for backward compatibility
+# ==========================================
+# LEGACY SPECIALIZED AGENTS
+# ==========================================
 try:
     from backend.app.agents.specialized_agents import (
         MarkdownTableAgent,
@@ -128,12 +118,41 @@ except ImportError:
     MasterFormattingOrchestrator = None
 
 
+# ==========================================
+# BLOOM'S TAXONOMY CONSTANTS
+# ==========================================
+BLOOM_TAXONOMY_LEVELS = [
+    "Remember",
+    "Understand", 
+    "Apply",
+    "Analyze",
+    "Evaluate",
+    "Create"
+]
+
+
 __all__ = [
     # ==========================================
-    # CORE AGENTS
+    # CORE AGENTS - LEGACY
     # ==========================================
     "QuestionGenerationAgent",
     "get_agent",
+    
+    # ==========================================
+    # CUSTOMIZED QUESTION AGENTS - NEW (BLOOM'S TAXONOMY)
+    # ==========================================
+    "CustomizedQuestionAgent",
+    "get_customized_agent",
+    
+    # ==========================================
+    # ASSIGNMENT GENERATION AGENT - NEW
+    # ==========================================
+    "AssignmentGenerationAgent",
+    
+    # ==========================================
+    # BLOOM'S TAXONOMY CONSTANTS
+    # ==========================================
+    "BLOOM_TAXONOMY_LEVELS",
     
     # ==========================================
     # BASE CLASSES
@@ -187,7 +206,7 @@ __all__ = [
     "QualityControlAgent",
     
     # ==========================================
-    # LEGACY FORMATTING (backward compatibility)
+    # LEGACY FORMATTING
     # ==========================================
     "CodeFormatterAgent",
     "LaTeXFormatterAgent",
@@ -200,7 +219,10 @@ __all__ = [
 ]
 
 
-# Factory function for creating agent instances
+# ==========================================
+# FACTORY FUNCTIONS
+# ==========================================
+
 def create_agent(agent_type: str, llm_client=None):
     """
     Factory function to create agent instances.
@@ -211,8 +233,16 @@ def create_agent(agent_type: str, llm_client=None):
         
     Returns:
         Agent instance
+        
+    Raises:
+        ValueError: If agent_type is unknown
     """
     agent_map = {
+        # Question generation agents
+        "question_generator": QuestionGenerationAgent,
+        "customized_question": CustomizedQuestionAgent,
+        "assignment_generator": AssignmentGenerationAgent,
+        
         # Mermaid agents
         "mermaid_flowchart": MermaidFlowchartAgent,
         "mermaid_sequence": MermaidSequenceAgent,
@@ -222,20 +252,24 @@ def create_agent(agent_type: str, llm_client=None):
         "mermaid_gantt": MermaidGanttAgent,
         "mermaid_pie": MermaidPieAgent,
         "mermaid_mindmap": MermaidMindmapAgent,
+        
         # ASCII agents
         "ascii_flowchart": ASCIIFlowchartAgent,
         "ascii_box": ASCIIBoxAgent,
         "ascii_table": ASCIITableAgent,
         "ascii_tree": ASCIITreeAgent,
+        
         # LaTeX agents
         "latex_inline": InlineLaTeXAgent,
         "latex_block": BlockLaTeXAgent,
         "latex_math": MathExpressionAgent,
         "latex_equation": EquationArrayAgent,
+        
         # Code agents
         "code_python": PythonCodeAgent,
         "code_multi": MultiLanguageCodeAgent,
         "code_explained": ExplainedCodeAgent,
+        
         # Orchestration
         "orchestrator": OrchestratorAgent,
         "supervisor": SupervisorAgent,
@@ -247,3 +281,51 @@ def create_agent(agent_type: str, llm_client=None):
         raise ValueError(f"Unknown agent type: {agent_type}")
     
     return agent_class(llm_client=llm_client)
+
+
+# ==========================================
+# CONVENIENCE FUNCTIONS
+# ==========================================
+
+def get_question_agent(use_customized: bool = False):
+    """
+    Get appropriate question generation agent.
+    
+    Args:
+        use_customized: If True, returns customized agent with Bloom's taxonomy.
+                       If False, returns legacy question generator.
+    
+    Returns:
+        Agent instance for question generation
+    """
+    if use_customized:
+        return get_customized_agent()
+    return get_agent()
+
+
+def get_assignment_agent(prompt_builder=None):
+    """
+    Get assignment generation agent.
+    
+    Args:
+        prompt_builder: Optional PromptBuilder instance
+        
+    Returns:
+        AssignmentGenerationAgent instance
+    """
+    from backend.app.prompts.prompt_manager import PromptBuilder
+    from backend.app.agents.assignment_agent import AssignmentGenerationAgent
+    
+    if prompt_builder is None:
+        prompt_builder = PromptBuilder()
+    
+    return AssignmentGenerationAgent(prompt_builder)
+
+
+# ==========================================
+# MODULE METADATA
+# ==========================================
+
+__version__ = "2.1.0"
+__author__ = "MTech Assessment Team"
+__description__ = "Agent-based question generation with Bloom's taxonomy calibration and assignment generation"

@@ -4,9 +4,9 @@ Document-based question generation router.
 Handles document parsing and context-aware question generation.
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Request
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, Callable
 import PyPDF2
 import io
 import json
@@ -15,6 +15,9 @@ from datetime import datetime
 from backend.app.config import get_settings
 from backend.app.agents import get_agent
 from backend.app.utils import get_logger, validate_subject, validate_difficulty_level
+
+from backend.app.prompts.prompt_manager import PromptBuilder
+from backend.app.agents.assignment_agent import AssignmentGenerationAgent
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -37,6 +40,17 @@ class DocumentParseResponse(BaseModel):
     word_count: int
     page_count: Optional[int] = None
     status: str = "success"
+
+
+class SummarizeRequest(BaseModel):
+    """Request model for document summarization."""
+    document_text: str
+    max_length: int = 500
+
+
+class ConceptExtractRequest(BaseModel):
+    """Request model for concept extraction."""
+    document_text: str
 
 
 @router.post(
@@ -269,7 +283,7 @@ User Request: {request.question_prompt}
     summary="Summarize Document",
     description="Generate a concise summary of document content"
 )
-async def summarize_document(request: BaseModel):
+async def summarize_document(request: SummarizeRequest):
     """
     Generate a concise summary of the document content.
 
@@ -280,28 +294,18 @@ async def summarize_document(request: BaseModel):
         dict: Summary and metadata
     """
     try:
-        class SummarizeRequest(BaseModel):
-            document_text: str
-            max_length: int = 500
-
-        if not isinstance(request, dict):
-            request = request.dict()
-
-        document_text = request.get("document_text", "")
-        max_length = request.get("max_length", 500)
+        document_text = request.document_text
+        max_length = request.max_length
 
         if not document_text.strip():
             raise HTTPException(status_code=400, detail="Document text cannot be empty")
 
         logger.info(f"Summarizing document ({len(document_text)} chars)")
 
-        # Get the question generation agent (has LLM access)
-        agent = get_agent("question_generation")
-
         # Use LLM to summarize
         from backend.app.llm_client import llm_client
 
-        summary = await llm_client.create_completion(
+        summary_response = await llm_client.create_completion(
             messages=[
                 {
                     "role": "system",
@@ -313,15 +317,24 @@ async def summarize_document(request: BaseModel):
                 }
             ],
             temperature=0.7,
-            max_tokens=max_length // 4,
+            max_tokens=max_length,
         )
+
+        # Extract summary from response
+        if isinstance(summary_response, dict):
+            summary = summary_response.get("content", summary_response.get("text", ""))
+        elif hasattr(summary_response, 'content'):
+            summary = summary_response.content
+        else:
+            summary = str(summary_response)
 
         return {
             "status": "success",
-            "summary": summary.get("content", ""),
+            "summary": summary,
             "metadata": {
                 "original_length": len(document_text),
                 "original_words": len(document_text.split()),
+                "summary_words": len(summary.split())
             }
         }
 
@@ -340,7 +353,7 @@ async def summarize_document(request: BaseModel):
     summary="Extract Key Concepts",
     description="Extract key concepts and topics from document"
 )
-async def extract_concepts(request: dict):
+async def extract_concepts(request: ConceptExtractRequest):
     """
     Extract key concepts, topics, and entities from document.
 
@@ -351,7 +364,7 @@ async def extract_concepts(request: dict):
         dict: Extracted concepts organized by category
     """
     try:
-        document_text = request.get("document_text", "")
+        document_text = request.document_text
 
         if not document_text.strip():
             raise HTTPException(status_code=400, detail="Document text cannot be empty")
@@ -377,10 +390,17 @@ async def extract_concepts(request: dict):
             max_tokens=1000,
         )
 
-        import json
+        # Extract content from response
+        if isinstance(response, dict):
+            content = response.get("content", response.get("text", "{}"))
+        elif hasattr(response, 'content'):
+            content = response.content
+        else:
+            content = str(response)
+
         try:
-            concepts = json.loads(response.get("content", "{}"))
-        except:
+            concepts = json.loads(content)
+        except json.JSONDecodeError:
             concepts = {
                 "definitions": [],
                 "topics": [],
@@ -521,13 +541,13 @@ class DocumentAssignmentRequest(BaseModel):
 
 
 @router.post(
-    "/generate-assignment",
-    summary="Generate Assignment from Document",
-    description="Generate an assignment from document context"
+    "/generate-assignment-legacy",
+    summary="Generate Assignment from Document (Legacy)",
+    description="Generate an assignment from document context using legacy method"
 )
-async def generate_assignment_from_document(request: DocumentAssignmentRequest):
+async def generate_assignment_from_document_legacy(request: DocumentAssignmentRequest):
     """
-    Generate assignment from document content.
+    Generate assignment from document content using legacy method.
 
     Args:
         request: Assignment generation request with document context
@@ -536,7 +556,7 @@ async def generate_assignment_from_document(request: DocumentAssignmentRequest):
         Generated assignment with tasks based on document
     """
     try:
-        logger.info(f"Generating assignment from document: {request.name}")
+        logger.info(f"Generating assignment from document (legacy): {request.name}")
 
         agent = get_agent()
 
@@ -606,90 +626,131 @@ async def generate_assignment_from_document(request: DocumentAssignmentRequest):
 # REGULAR ASSIGNMENT GENERATION (Non-Document Based)
 # ============================================================================
 
-@router.post(
-    "/assignments/generate",
-    summary="Generate Assignment",
-    description="Generate an assignment without document context"
-)
+@router.post("/assignments/generate")
 async def generate_assignment(
     name: str = Query(..., description="Assignment name"),
     course_code: str = Query(..., description="Course code"),
-    subject: str = Query(..., description="Subject"),
-    assignment_type: str = Query(..., description="Assignment type"),
+    subject: str = Query(..., description="Subject area"),
+    assignment_type: str = Query(..., description="Type of assignment"),
     difficulty: str = Query(..., description="Difficulty level"),
-    max_marks: int = Query(100, description="Maximum marks"),
-    duration_days: int = Query(7, description="Duration in days"),
-    num_tasks: int = Query(5, description="Number of tasks"),
-    description: str = Query("", description="Assignment description"),
-):
+    max_marks: int = Query(..., description="Maximum marks"),
+    duration_days: int = Query(..., description="Duration in days"),
+    num_tasks: int = Query(..., description="Number of tasks"),
+    description: str = Query(..., description="Assignment description"),
+    include_solutions: bool = Query(True, description="Include solutions"),
+    include_starter_code: bool = Query(False, description="Include starter code"),
+    include_test_cases: bool = Query(False, description="Include test cases"),
+    topic: Optional[str] = Query(None, description="Specific topic"),
+    bloom_distribution: Optional[str] = Query(None, description="Bloom's distribution JSON"),
+    chat_context: Optional[str] = Query(None, description="Chat context"),
+) -> Dict[str, Any]:
     """
-    Generate an assignment based on parameters.
-
-    Args:
-        name: Assignment name
-        course_code: Course code
-        subject: Subject area
-        assignment_type: Type of assignment (coding, theoretical, mixed, project, lab)
-        difficulty: Difficulty level (easy, medium, hard)
-        max_marks: Maximum marks
-        duration_days: Duration in days
-        num_tasks: Number of tasks
-        description: Assignment description
-
-    Returns:
-        Generated assignment with tasks
+    Generate an assignment with Bloom's taxonomy support.
     """
     try:
         logger.info(f"Generating assignment: {name}")
-
-        agent = get_agent()
-
-        # Generate assignment from parameters
-        prompt = f"""
-        Generate a {num_tasks} task {assignment_type} assignment for {subject}.
         
-        Assignment Details:
-        - Name: {name}
-        - Course Code: {course_code}
-        - Subject: {subject}
-        - Type: {assignment_type}
-        - Difficulty: {difficulty}
-        - Max Marks: {max_marks}
-        - Duration: {duration_days} days
+        # Parse bloom_distribution if provided
+        bloom_dict = {}
+        if bloom_distribution:
+            try:
+                bloom_dict = json.loads(bloom_distribution)
+                logger.info(f"Parsed Bloom distribution: {bloom_dict}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse bloom_distribution: {bloom_distribution}, error: {e}")
         
-        Description: {description}
-        
-        Create diverse tasks covering key topics in {subject}.
-        """
-
-        response = agent.generate(
-            task="assignment_generation",
-            prompt=prompt
-        )
-
-        if "error" in response:
-            raise HTTPException(status_code=500, detail=response["error"])
-
-        tasks = response.get("tasks", []) if isinstance(response, dict) else []
-        
-        logger.info(f"Generated {len(tasks)} tasks for assignment: {name}")
-
-        return {
+        # Prepare parameters for agent
+        params = {
             "name": name,
             "course_code": course_code,
             "subject": subject,
+            "topic": topic or subject,
             "assignment_type": assignment_type,
             "difficulty": difficulty,
             "max_marks": max_marks,
             "duration_days": duration_days,
-            "tasks": tasks,
-            "source": "generated",
-            "created_at": datetime.now().isoformat()
+            "num_tasks": num_tasks,
+            "description": description,
+            "include_solutions": include_solutions,
+            "include_starter_code": include_starter_code,
+            "include_test_cases": include_test_cases,
+            "bloom_distribution": bloom_dict,
+            "chat_context": chat_context or ""
         }
-
+        
+        # Initialize agent
+        prompt_builder = PromptBuilder()
+        agent = AssignmentGenerationAgent(prompt_builder)
+        
+        # Generate assignment - REMOVED await
+        assignment = agent.generate_assignment(params)
+        
+        logger.info(f"Successfully generated assignment with {len(assignment.get('tasks', []))} tasks")
+        return assignment
+        
     except Exception as e:
-        logger.error(f"Assignment generation error: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate assignment: {str(e)}"
-        )
+        logger.error(f"Assignment generation error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate-assignment")
+async def generate_assignment_from_document(
+    document_text: str = Query(..., description="Document text"),
+    name: str = Query(..., description="Assignment name"),
+    course_code: str = Query(..., description="Course code"),
+    subject: str = Query(..., description="Subject area"),
+    assignment_type: str = Query(..., description="Type of assignment"),
+    difficulty: str = Query(..., description="Difficulty level"),
+    max_marks: int = Query(..., description="Maximum marks"),
+    duration_days: int = Query(..., description="Duration in days"),
+    num_tasks: int = Query(..., description="Number of tasks"),
+    description: str = Query(..., description="Assignment description"),
+    bloom_distribution: Optional[str] = Query(None, description="Bloom's distribution JSON"),
+    chat_context: Optional[str] = Query(None, description="Chat context"),
+    topic: Optional[str] = Query(None, description="Specific topic"),
+) -> Dict[str, Any]:
+    """
+    Generate an assignment from document context with Bloom's taxonomy.
+    """
+    try:
+        logger.info(f"Generating assignment from document: {name}")
+        
+        # Parse bloom_distribution if provided
+        bloom_dict = {}
+        if bloom_distribution:
+            try:
+                bloom_dict = json.loads(bloom_distribution)
+                logger.info(f"Parsed Bloom distribution: {bloom_dict}")
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse bloom_distribution: {bloom_distribution}, error: {e}")
+        
+        # Prepare parameters
+        params = {
+            "name": name,
+            "course_code": course_code,
+            "subject": subject,
+            "topic": topic or subject,
+            "assignment_type": assignment_type,
+            "difficulty": difficulty,
+            "max_marks": max_marks,
+            "duration_days": duration_days,
+            "num_tasks": num_tasks,
+            "description": description,
+            "bloom_distribution": bloom_dict,
+            "chat_context": chat_context or "",
+            "document_text": document_text
+        }
+        
+        # Initialize agent
+        prompt_builder = PromptBuilder()
+        agent = AssignmentGenerationAgent(prompt_builder)
+        
+        # Generate assignment from document - REMOVED await
+        assignment = agent.generate_assignment_from_document(document_text, params)
+        
+        logger.info(f"Successfully generated assignment from document with {len(assignment.get('tasks', []))} tasks")
+        return assignment
+        
+    except Exception as e:
+        logger.error(f"Assignment generation from document error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

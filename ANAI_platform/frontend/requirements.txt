@@ -1,3 +1,5 @@
 streamlit==1.52.1
 requests==2.32.5
 python-dotenv==1.2.1
+python-docx==0.8.11
+pypdf2

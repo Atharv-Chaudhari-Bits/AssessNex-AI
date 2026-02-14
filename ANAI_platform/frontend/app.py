@@ -2162,14 +2162,7 @@ with tab2:
             margin: 25px 0;
         }
         
-        /* Fix for streamlit default colors */
-        .st-emotion-cache-1v0mbdj {
-            color: black !important;
-        }
         
-        p, div, span {
-            color: black !important;
-        }
         
         /* Export button styling */
         .export-button {
@@ -2626,76 +2619,449 @@ with tab2:
                     st.warning("No answers available in the paper data.")
 
 # ============================================================================
-# TAB 3: ASSIGNMENT GENERATOR
+# TAB 3: ASSIGNMENT GENERATOR (Enhanced with Bloom's Taxonomy)
 # ============================================================================
 
+# Helper function for key concept extraction
+def extract_key_concepts(text, max_concepts=5):
+    """
+    Extract key concepts from text using simple NLP techniques.
+    
+    Args:
+        text: Input text to extract concepts from
+        max_concepts: Maximum number of concepts to return
+        
+    Returns:
+        list: List of key concepts
+    """
+    import re
+    from collections import Counter
+    
+    if not text or len(text) < 10:
+        return []
+    
+    try:
+        # Find capitalized phrases (potential key terms)
+        # Pattern matches words starting with capital letters, possibly followed by lowercase
+        pattern = r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b'
+        concepts = re.findall(pattern, text)
+        
+        # Also find common technical terms (could be lowercase)
+        tech_pattern = r'\b(machine learning|neural network|deep learning|algorithm|data|model|training|testing|validation|regression|classification|clustering|python|tensorflow|pytorch|keras|api|database|server|client|framework|library)\b'
+        tech_terms = re.findall(tech_pattern, text.lower())
+        
+        # Combine and count
+        all_terms = concepts + tech_terms
+        if not all_terms:
+            # If no capitalized terms found, take common words
+            words = re.findall(r'\b\w{4,}\b', text.lower())
+            # Filter out common stop words
+            stop_words = {'this', 'that', 'with', 'from', 'have', 'were', 'will', 'would', 'could', 'should', 'their', 'there', 'about', 'which'}
+            words = [w for w in words if w not in stop_words and len(w) > 3]
+            common_words = Counter(words).most_common(max_concepts)
+            return [word for word, count in common_words]
+        
+        # Count frequencies and return top concepts
+        concept_counts = Counter(all_terms)
+        top_concepts = [concept for concept, count in concept_counts.most_common(max_concepts)]
+        
+        return top_concepts
+        
+    except Exception as e:
+        # Fallback to simple word extraction
+        words = re.findall(r'\b\w{5,}\b', text.lower())
+        common_words = Counter(words).most_common(max_concepts)
+        return [word for word, count in common_words]
+
 with tab3:
-    display_header("📚 Generate Assignment", "Create practice assignments with tracking")
+    # Get theme from session state
+    current_theme = st.session_state.get('theme', 'dark')
+    
+    # Theme-specific colors - FIXED for light theme
+    theme_colors = {
+        'dark': {
+            'bg': '#1E1E2E',
+            'card': '#2D2D3F',
+            'text': '#FFFFFF',
+            'accent': '#8b5cf6',
+            'secondary': '#10b981',
+            'border': '#374151',
+            'header_bg': '#0F0F1A',
+            'text_secondary': '#9CA3AF',
+            'card_text': '#FFFFFF'
+        },
+        'light': {
+            'bg': '#F3F4F6',
+            'card': '#FFFFFF',
+            'text': '#111827',
+            'accent': '#7c3aed',
+            'secondary': '#059669',
+            'border': '#E5E7EB',
+            'header_bg': '#FFFFFF',
+            'text_secondary': '#6B7280',
+            'card_text': '#111827'
+        }
+    }
+    
+    colors = theme_colors[current_theme]
+    
+    # Custom CSS for theme-aware styling
+    st.markdown(f"""
+    <style>
+    /* Theme-aware styles */
+    .stApp {{
+        background-color: {colors['bg']};
+    }}
+    
+    .main-header {{
+        color: {colors['text']} !important;
+    }}
+    
+    .bloom-card {{
+        background-color: {colors['card']};
+        border: 1px solid {colors['border']};
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        color: {colors['card_text']};
+    }}
+    
+    .bloom-level {{
+        background: linear-gradient(135deg, {colors['accent']}20, {colors['secondary']}20);
+        border-left: 4px solid {colors['accent']};
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 0.5rem 0;
+        color: {colors['text']};
+    }}
+    
+    .bloom-badge {{
+        display: inline-block;
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-right: 0.5rem;
+        color: white;
+    }}
+    
+    .remember-badge {{ background: #3B82F6; color: white; }}
+    .understand-badge {{ background: #10B981; color: white; }}
+    .apply-badge {{ background: #F59E0B; color: white; }}
+    .analyze-badge {{ background: #8B5CF6; color: white; }}
+    .evaluate-badge {{ background: #EF4444; color: white; }}
+    .create-badge {{ background: #EC4899; color: white; }}
+    
+    .task-card {{
+        background: {colors['card']};
+        border: 1px solid {colors['border']};
+        border-radius: 12px;
+        padding: 1.25rem;
+        margin: 1rem 0;
+        transition: transform 0.2s;
+        color: {colors['card_text']};
+    }}
+    
+    .task-card:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 8px 12px rgba(0, 0, 0, 0.15);
+    }}
+    
+    .task-card h3 {{
+        color: {colors['text']} !important;
+    }}
+    
+    .task-card p {{
+        color: {colors['text_secondary']};
+    }}
+    
+    .bloom-indicator {{
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.75rem;
+        border-radius: 16px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: white;
+    }}
+    
+    /* Fix for text colors in light theme */
+    .stMarkdown, .stText, p, h1, h2, h3, h4, h5, h6 {{
+        color: {colors['text']} !important;
+    }}
+    
+    .stExpander {{
+        background-color: {colors['card']};
+        border: 1px solid {colors['border']};
+        border-radius: 8px;
+    }}
+    
+    .stInfo {{
+        background-color: {colors['card']};
+        color: {colors['text']};
+        border: 1px solid {colors['border']};
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
+    display_header("📚 Generate Assignment with Bloom's Taxonomy", 
+                   "Create practice assignments with cognitive level tracking")
     
     st.markdown("### 📋 Assignment Configuration")
     
+    # Main configuration in columns
     col1, col2 = st.columns(2)
     with col1:
-        assign_name = st.text_input("📝 Assignment Name", value="ML Assignment 1", key="assign_name")
-        assign_code = st.text_input("🔢 Course Code", value="CS-501", key="assign_code")
+        assign_name = st.text_input("📝 Assignment Name", 
+                                   value="ML Assignment 1", 
+                                   key="assign_name",
+                                   help="Enter a descriptive name for the assignment")
+        assign_code = st.text_input("🔢 Course Code", 
+                                   value="CS-501", 
+                                   key="assign_code",
+                                   help="Course code (e.g., CS-501)")
     with col2:
         assign_subject = st.selectbox(
             "📚 Subject",
             ["Machine Learning", "Deep Learning", "Natural Language Processing", "Computer Vision", 
              "Artificial Intelligence", "Reinforcement Learning", "Data Science", "Cryptography"],
-            key="assign_subject"
+            key="assign_subject",
+            help="Select the main subject area"
         )
-        assign_level = st.selectbox("🎯 Difficulty", get_difficulty_levels(), key="assign_level")
     
     st.divider()
     
+    # ========================================================================
+    # BLOOM'S TAXONOMY CONFIGURATION
+    # ========================================================================
+    st.markdown("### 🧠 Cognitive Level Configuration (Bloom's Taxonomy)")
+    
+    # Bloom's taxonomy levels with descriptions
+    bloom_levels = {
+        "Remember": {
+            "icon": "🔵",
+            "color": "#3B82F6",
+            "description": "Recall facts and basic concepts",
+            "verbs": "Define, List, Recall, Name, Identify",
+            "cognitive_demand": "Lowest - Simple recall",
+            "default_weight": 10
+        },
+        "Understand": {
+            "icon": "🟢",
+            "color": "#10B981",
+            "description": "Explain ideas or concepts",
+            "verbs": "Explain, Describe, Summarize, Interpret",
+            "cognitive_demand": "Low - Comprehension",
+            "default_weight": 15
+        },
+        "Apply": {
+            "icon": "🟠",
+            "color": "#F59E0B",
+            "description": "Use information in new situations",
+            "verbs": "Apply, Demonstrate, Solve, Use",
+            "cognitive_demand": "Medium - Application",
+            "default_weight": 25
+        },
+        "Analyze": {
+            "icon": "🟣",
+            "color": "#8B5CF6",
+            "description": "Draw connections among ideas",
+            "verbs": "Analyze, Compare, Contrast, Examine",
+            "cognitive_demand": "Medium-High - Analysis",
+            "default_weight": 20
+        },
+        "Evaluate": {
+            "icon": "🔴",
+            "color": "#EF4444",
+            "description": "Justify a stand or decision",
+            "verbs": "Evaluate, Critique, Assess, Judge",
+            "cognitive_demand": "High - Evaluation",
+            "default_weight": 15
+        },
+        "Create": {
+            "icon": "🟤",
+            "color": "#EC4899",
+            "description": "Produce new or original work",
+            "verbs": "Create, Design, Develop, Formulate",
+            "cognitive_demand": "Highest - Synthesis",
+            "default_weight": 15
+        }
+    }
+    
+    # Bloom's taxonomy selection with hierarchy
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        # Primary Bloom level selector (with hierarchy inheritance)
+        primary_bloom_level = st.selectbox(
+            "🎯 Primary Cognitive Level",
+            options=list(bloom_levels.keys()),
+            index=2,  # Default to Apply
+            key="primary_bloom",
+            help="Select the highest cognitive level. Lower levels will be automatically included."
+        )
+        
+        # Show selected level details
+        selected_level = bloom_levels[primary_bloom_level]
+        st.markdown(f"""
+        <div class="bloom-level">
+            <span class="bloom-badge" style="background: {selected_level['color']};">
+                {selected_level['icon']} {primary_bloom_level}
+            </span>
+            <p style="margin-top: 0.5rem; color: {colors['text']};"><strong>Description:</strong> {selected_level['description']}</p>
+            <p style="color: {colors['text']};"><strong>Action Verbs:</strong> {selected_level['verbs']}</p>
+            <p style="color: {colors['text']};"><strong>Cognitive Demand:</strong> {selected_level['cognitive_demand']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Automatically include lower levels
+        bloom_keys = list(bloom_levels.keys())
+        selected_index = bloom_keys.index(primary_bloom_level)
+        included_levels = bloom_keys[:selected_index + 1]
+        
+        st.info(f"✅ **Included Levels:** {', '.join([f'{bloom_levels[lvl]["icon"]} {lvl}' for lvl in included_levels])}")
+    
+    with col2:
+        st.markdown("#### 📊 Bloom's Distribution")
+        st.markdown("Adjust the percentage distribution across levels")
+        
+        # Create distribution sliders for included levels
+        bloom_distribution = {}
+        total_percentage = 0
+        
+        # Show sliders only for included levels
+        for level in included_levels:
+            default_weight = bloom_levels[level]["default_weight"]
+            # Adjust default weights to sum to 100
+            total_default = sum(bloom_levels[l]["default_weight"] for l in included_levels)
+            adjusted_default = int(default_weight * (100 / total_default)) if total_default > 0 else 0
+            
+            percentage = st.slider(
+                f"{bloom_levels[level]['icon']} {level}",
+                min_value=0,
+                max_value=100,
+                value=adjusted_default,
+                key=f"bloom_dist_{level}",
+                help=f"Weight for {level} level questions"
+            )
+            bloom_distribution[level] = percentage
+            total_percentage += percentage
+        
+        # Show total and validation
+        if total_percentage != 100:
+            st.warning(f"⚠️ Total distribution: {total_percentage}% (should be 100%)")
+        else:
+            st.success(f"✅ Total: {total_percentage}%")
+    
+    st.divider()
+    
+    # ========================================================================
+    # ASSIGNMENT DETAILS
+    # ========================================================================
     col1, col2, col3 = st.columns(3)
     with col1:
         assignment_type = st.selectbox(
             "📂 Assignment Type",
             ["Coding Problem", "Essay", "Case Study", "Problem Solving", "Research", "Project", "Theoretical", "Practical"],
-            key="assign_type"
+            key="assign_type",
+            help="Select the type of assignment"
         )
     with col2:
-        assign_num = st.slider("📝 Number of Tasks", 1, 10, 3, key="assign_num")
+        assign_num = st.slider("📝 Number of Tasks", 1, 15, 5, key="assign_num",
+                              help="Number of individual tasks in the assignment")
     with col3:
-        total_points = st.slider("📊 Total Points", 10, 200, 100, key="assign_points")
+        total_points = st.slider("📊 Total Points", 10, 200, 100, key="assign_points",
+                                help="Total marks for the assignment")
     
     col1, col2 = st.columns(2)
     with col1:
-        due_days = st.slider("📅 Due in (days)", 1, 30, 7, key="assign_due")
+        due_days = st.slider("📅 Due in (days)", 1, 30, 7, key="assign_due",
+                            help="Number of days until submission")
     with col2:
         submission_format = st.selectbox(
             "📤 Submission Format",
             ["PDF", "Jupyter Notebook", "Code Repository", "Google Doc", "Any Format"],
-            key="assign_format"
+            key="assign_format",
+            help="Required format for submission"
         )
     
-    # Topic input
+    # Topic input with autocomplete suggestions
     assign_topic = st.text_input(
         "📌 Specific Topic (Optional)",
-        placeholder="Leave blank to use subject as topic",
-        key="assign_topic"
+        placeholder="e.g., Neural Networks, Decision Trees, Clustering Algorithms",
+        key="assign_topic",
+        help="Leave blank to use subject as topic"
     )
     
     assign_description = st.text_area(
         "📋 Assignment Description & Requirements",
         height=120,
         placeholder="Describe the assignment goals, specific topics to cover, requirements, and any special instructions...",
-        value=f"Create a comprehensive {assignment_type.lower()} on {assign_subject}. Focus on practical applications and real-world scenarios.",
-        key="assign_description"
+        value=f"Create a comprehensive {assignment_type.lower()} on {assign_subject} that demonstrates {primary_bloom_level} level understanding.",
+        key="assign_description",
+        help="Provide detailed instructions for the assignment"
     )
     
-    # Code generation options (for coding assignments)
+    # ========================================================================
+    # INTERACTIVE CHAT CONTEXT
+    # ========================================================================
+    with st.expander("💬 Interactive Context (Optional)", expanded=False):
+        st.markdown("""
+        Provide additional context through chat. This helps customize the assignment 
+        to your specific needs.
+        """)
+        
+        # Chat-like interface for context
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            chat_input = st.text_input(
+                "💭 Add context message",
+                placeholder="e.g., Focus on real-world applications, include ethical considerations, etc.",
+                key="chat_context_input"
+            )
+        with col2:
+            if st.button("➕ Add", use_container_width=True):
+                if chat_input:
+                    if 'chat_messages' not in st.session_state:
+                        st.session_state.chat_messages = []
+                    st.session_state.chat_messages.append(chat_input)
+                    st.rerun()
+        
+        # Display chat messages
+        if 'chat_messages' in st.session_state and st.session_state.chat_messages:
+            st.markdown("**Context Messages:**")
+            for i, msg in enumerate(st.session_state.chat_messages):
+                col_msg1, col_msg2 = st.columns([10, 1])
+                with col_msg1:
+                    st.markdown(f"💬 {msg}")
+                with col_msg2:
+                    if st.button("✕", key=f"remove_msg_{i}"):
+                        st.session_state.chat_messages.pop(i)
+                        st.rerun()
+            
+            if st.button("Clear All", key="clear_chat"):
+                st.session_state.chat_messages = []
+                st.rerun()
+    
+    # ========================================================================
+    # CODE GENERATION OPTIONS
+    # ========================================================================
     if assignment_type in ["Coding Problem", "Project", "Practical"]:
         st.markdown("#### ⚙️ Code Generation Options")
         col1, col2, col3 = st.columns(3)
         with col1:
-            include_starter = st.checkbox("📄 Include Starter Code", value=True, key="assign_starter")
+            include_starter = st.checkbox("📄 Include Starter Code", value=True, 
+                                        key="assign_starter",
+                                        help="Provide starter code for tasks")
         with col2:
-            include_solutions = st.checkbox("🔐 Include Solutions", value=True, key="assign_solutions")
+            include_solutions = st.checkbox("🔐 Include Solutions", value=True, 
+                                          key="assign_solutions",
+                                          help="Include solution code (instructor only)")
         with col3:
-            include_tests = st.checkbox("🧪 Include Test Cases", value=True, key="assign_tests")
+            include_tests = st.checkbox("🧪 Include Test Cases", value=True, 
+                                      key="assign_tests",
+                                      help="Generate test cases for verification")
     else:
         include_starter = False
         include_solutions = True
@@ -2703,460 +3069,1059 @@ with tab3:
     
     st.divider()
     
-    # Document-based generation option
-    st.markdown("### 📄 Document-Based Generation (Optional)")
+    # ========================================================================
+    # DOCUMENT-BASED GENERATION
+    # ========================================================================
+    st.markdown("### 📄 Document-Based Generation")
     
-    use_assign_document = st.checkbox("📤 Use document content to generate assignment", value=False, key="assign_use_doc")
+    use_assign_document = st.checkbox("📤 Use document content for generation", 
+                                     value=False, 
+                                     key="assign_use_doc",
+                                     help="Upload a document to base the assignment on")
+    
     assign_document_text = None
     
     if use_assign_document:
         assign_uploaded_file = st.file_uploader(
             "📁 Upload document (PDF, DOCX, or TXT)",
             type=["pdf", "docx", "txt"],
-            key="assign_doc_upload"
+            key="assign_doc_upload",
+            help="Upload lecture notes, textbook chapters, or reference materials"
         )
         
         if assign_uploaded_file:
             try:
-                assign_status_placeholder = st.empty()
-                assign_status_placeholder.info("📖 Extracting document content...")
-                assign_document_text = extract_document_text(assign_uploaded_file)
-                assign_status_placeholder.success(f"✅ Extracted {len(assign_document_text)} characters from document")
+                with st.spinner("📖 Extracting document content..."):
+                    assign_document_text = extract_document_text(assign_uploaded_file)
+                    
+                st.success(f"✅ Successfully extracted {len(assign_document_text)} characters")
                 
-                with st.expander("👁️ Preview extracted text"):
-                    st.text_area("", value=assign_document_text[:500] + "...", height=150, disabled=True)
+                # Document preview with theme-aware styling
+                with st.expander("👁️ Document Preview", expanded=False):
+                    preview_text = assign_document_text[:1000] + "..." if len(assign_document_text) > 1000 else assign_document_text
+                    st.text_area("Extracted Content", value=preview_text, height=200, disabled=True)
+                    
+                    # Key concepts extraction
+                    st.markdown("**📌 Key Concepts Detected:**")
+                    key_concepts = extract_key_concepts(assign_document_text)
+                    if key_concepts:
+                        for concept in key_concepts[:5]:
+                            st.markdown(f"• {concept}")
+                    else:
+                        st.markdown("No key concepts detected")
+                        
             except Exception as e:
                 st.error(f"❌ Error processing document: {str(e)}")
                 assign_document_text = None
     
     st.divider()
     
-    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 1])
+    # ========================================================================
+    # GENERATION BUTTON
+    # ========================================================================
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
     with col_btn2:
-        if st.button("🚀 Generate Assignment", type="primary", use_container_width=True, key="assign_generate"):
-            try:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                status_text.info("📝 Generating assignment with LangGraph workflow...")
-                progress_bar.progress(20)
-                
-                client = st.session_state.api_client
-                
-                status_text.info("🔄 Creating diverse tasks and code files...")
-                progress_bar.progress(40)
-                
-                # If document is provided, use document-based generation
-                if assign_document_text:
-                    response = client.generate_assignment_from_document(
-                        document_text=assign_document_text,
-                        name=assign_name,
-                        course_code=assign_code,
-                        subject=assign_subject,
-                        assignment_type=assignment_type,
-                        difficulty=assign_level,
-                        max_marks=total_points,
-                        duration_days=due_days,
-                        num_tasks=assign_num,
-                        description=assign_description
-                    )
-                else:
-                    response = client.generate_assignment(
-                        name=assign_name,
-                        course_code=assign_code,
-                        subject=assign_subject,
-                        topic=assign_topic if assign_topic else assign_subject,
-                        assignment_type=assignment_type,
-                        difficulty=assign_level,
-                        max_marks=total_points,
-                        duration_days=due_days,
-                        num_tasks=assign_num,
-                        description=assign_description,
-                        include_solutions=include_solutions,
-                        include_starter_code=include_starter,
-                        include_test_cases=include_tests
-                    )
-
-                
-                progress_bar.progress(80)
-                
-                # Extract assignment data from response
-                assignment_data = response
-                tasks = assignment_data.get('tasks', [])
-                
-                progress_bar.progress(100)
-                status_text.success(f"✅ Assignment generated with {len(tasks)} tasks!")
-                
-                st.session_state.generated_assignment = assignment_data
-                st.balloons()
-                
-                st.divider()
-                
-                # Display assignment header
+        generate_button = st.button(
+            "🚀 Generate Assignment with Bloom's Taxonomy", 
+            type="primary", 
+            use_container_width=True,
+            key="assign_generate",
+            disabled=total_percentage != 100 if 'total_percentage' in locals() else False
+        )
+    
+    # ========================================================================
+    # ASSIGNMENT GENERATION AND DISPLAY
+    # ========================================================================
+    if generate_button:
+        try:
+            # Progress tracking
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Step 1: Initialize
+            status_text.info("🚀 Initializing assignment generation...")
+            progress_bar.progress(10)
+            
+            client = st.session_state.api_client
+            
+            # Step 2: Prepare context
+            status_text.info("📝 Preparing context with Bloom's taxonomy...")
+            progress_bar.progress(20)
+            
+            # Combine chat messages into context
+            chat_context = "\n".join(st.session_state.get('chat_messages', []))
+            
+            # Step 3: Generate assignment
+            status_text.info("🔄 Generating tasks with Bloom's taxonomy levels...")
+            progress_bar.progress(40)
+            
+            # Prepare distribution for API
+            bloom_distribution_dict = {
+                level: weight 
+                for level, weight in bloom_distribution.items() 
+                if weight > 0
+            }
+            
+            # Call API with document if provided
+            if assign_document_text:
+                response = client.generate_assignment_from_document(
+                    document_text=assign_document_text,
+                    name=assign_name,
+                    course_code=assign_code,
+                    subject=assign_subject,
+                    assignment_type=assignment_type,
+                    difficulty="custom",
+                    max_marks=total_points,
+                    duration_days=due_days,
+                    num_tasks=assign_num,
+                    description=assign_description,
+                    bloom_distribution=bloom_distribution_dict,
+                    chat_context=chat_context,
+                    topic=assign_topic if assign_topic else assign_subject
+                )
+            else:
+                response = client.generate_assignment(
+                    name=assign_name,
+                    course_code=assign_code,
+                    subject=assign_subject,
+                    topic=assign_topic if assign_topic else assign_subject,
+                    assignment_type=assignment_type,
+                    difficulty="custom",
+                    max_marks=total_points,
+                    duration_days=due_days,
+                    num_tasks=assign_num,
+                    description=assign_description,
+                    include_solutions=include_solutions,
+                    include_starter_code=include_starter,
+                    include_test_cases=include_tests,
+                    bloom_distribution=bloom_distribution_dict,
+                    chat_context=chat_context
+                )
+            
+            progress_bar.progress(80)
+            
+            # Extract assignment data
+            assignment_data = response
+            tasks = assignment_data.get('tasks', [])
+            
+            progress_bar.progress(100)
+            status_text.success(f"✅ Assignment generated with {len(tasks)} tasks!")
+            st.balloons()
+            
+            # Store in session state
+            st.session_state.generated_assignment = assignment_data
+            st.session_state.generated_assignment_display = {
+                'assign_name': assign_name,
+                'assign_code': assign_code,
+                'assign_subject': assign_subject,
+                'assignment_type': assignment_type,
+                'primary_bloom_level': primary_bloom_level,
+                'bloom_distribution': bloom_distribution,
+                'due_days': due_days,
+                'total_points': total_points,
+                'assign_description': assign_description,
+                'tasks': tasks,
+                'submission_guidelines': assignment_data.get('submission_guidelines', []),
+                'evaluation_criteria': assignment_data.get('evaluation_criteria', []),
+                'learning_objectives': assignment_data.get('learning_objectives', []),
+                'generated_files': assignment_data.get('generated_files', [])
+            }
+            
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"❌ Error generating assignment: {str(e)}")
+            import traceback
+            with st.expander("🔍 Error Details"):
+                st.code(traceback.format_exc())
+    
+    # ========================================================================
+    # DISPLAY GENERATED ASSIGNMENT (from session state)
+    # ========================================================================
+    if 'generated_assignment_display' in st.session_state:
+        display_data = st.session_state.generated_assignment_display
+        
+        st.divider()
+        
+        # Header with theme-aware styling
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, {colors['accent']} 0%, {colors['secondary']} 100%); 
+                    padding: 2.5rem; border-radius: 20px; margin: 1rem 0; 
+                    text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.2);">
+            <h1 style="color: white; margin: 0; font-size: 2.5rem;">📚 {display_data['assign_name']}</h1>
+            <p style="color: rgba(255,255,255,0.95); margin: 0.5rem 0; font-size: 1.1rem;">
+                {display_data['assign_code']} | {display_data['assign_subject']} | {display_data['assignment_type']}
+            </p>
+            <div style="display: flex; justify-content: center; gap: 2rem; margin-top: 1rem;">
+                <span style="color: white; background: rgba(255,255,255,0.2); padding: 0.5rem 1rem; border-radius: 30px;">
+                    📅 Due: {display_data['due_days']} days
+                </span>
+                <span style="color: white; background: rgba(255,255,255,0.2); padding: 0.5rem 1rem; border-radius: 30px;">
+                    📊 {display_data['total_points']} points
+                </span>
+                <span style="color: white; background: rgba(255,255,255,0.2); padding: 0.5rem 1rem; border-radius: 30px;">
+                    🧠 Primary: {display_data['primary_bloom_level']}
+                </span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Description
+        st.info(f"**📋 Description:** {display_data['assign_description']}")
+        
+        # Bloom's Distribution Summary
+        with st.expander("📊 Bloom's Taxonomy Distribution", expanded=True):
+            cols = st.columns(len(display_data['bloom_distribution']))
+            for idx, (level, weight) in enumerate(display_data['bloom_distribution'].items()):
+                with cols[idx]:
+                    level_info = bloom_levels[level]
+                    st.markdown(f"""
+                    <div style="text-align: center; padding: 1rem; 
+                               background: {level_info['color']}20; 
+                               border-radius: 12px;">
+                        <span style="font-size: 2rem;">{level_info['icon']}</span>
+                        <h4 style="margin: 0.5rem 0; color: {colors['text']};">{level}</h4>
+                        <div style="font-size: 1.5rem; font-weight: bold; color: {level_info['color']};">
+                            {weight}%
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        # Submission Guidelines
+        if display_data['submission_guidelines']:
+            with st.expander("📤 Submission Guidelines", expanded=True):
+                for guideline in display_data['submission_guidelines']:
+                    st.markdown(f"• {guideline}")
+        
+        # Evaluation Criteria with Bloom's alignment
+        if display_data['evaluation_criteria']:
+            with st.expander("📊 Evaluation Criteria (Bloom's Aligned)", expanded=True):
+                for c in display_data['evaluation_criteria']:
+                    bloom_level = c.get('bloom_level', 'Understand')
+                    level_info = bloom_levels.get(bloom_level, bloom_levels['Understand'])
+                    weight = int(c.get('weight', 0) * 100)
+                    criterion = c.get('criterion', '')
+                    desc = c.get('description', '')
+                    st.markdown(f"""
+                    <div style="padding: 0.5rem; margin: 0.5rem 0; 
+                               background: {colors['card']}; border-radius: 8px;
+                               border: 1px solid {colors['border']};">
+                        <span class="bloom-badge" style="background: {level_info['color']};">
+                            {level_info['icon']} {bloom_level}
+                        </span>
+                        <strong style="color: {colors['text']};">{criterion}</strong> ({weight}%) - {desc}
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        # Learning Objectives
+        if display_data['learning_objectives']:
+            with st.expander("🎯 Learning Objectives", expanded=True):
+                for obj in display_data['learning_objectives']:
+                    st.markdown(f"✅ {obj}")
+        
+        st.divider()
+        
+        # ========================================================================
+        # TASKS DISPLAY
+        # ========================================================================
+        st.markdown("### 📝 Assignment Tasks")
+        
+        for idx, task in enumerate(display_data['tasks']):
+            task_bloom = task.get('bloom_level', task.get('cognitive_level', 'Understand'))
+            level_info = bloom_levels.get(task_bloom, bloom_levels['Understand'])
+            
+            with st.container():
                 st.markdown(f"""
-                <div style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); 
-                            padding: 2rem; border-radius: 15px; margin: 1rem 0; text-align: center;">
-                    <h1 style="color: white; margin: 0;">📚 {assign_name}</h1>
-                    <p style="color: rgba(255,255,255,0.9); margin: 0.5rem 0;">
-                        {assign_code} | {assign_subject} | {assignment_type}
-                    </p>
-                    <p style="color: rgba(255,255,255,0.8); margin: 0;">
-                        📅 Due: {due_days} days | 📊 {total_points} points | 📝 {len(tasks)} tasks
-                    </p>
+                <div class="task-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; color: {colors['text']};">Task {idx + 1}: {task.get('title', f'Task {idx+1}')}</h3>
+                        <span class="bloom-badge" style="background: {level_info['color']};">
+                            {level_info['icon']} {task_bloom}
+                        </span>
+                    </div>
+                    <p style="margin: 1rem 0; color: {colors['text_secondary']};">{task.get('description', '')}</p>
+                    <div style="display: flex; gap: 1rem; margin: 1rem 0;">
+                        <span style="background: {colors['border']}; padding: 0.25rem 1rem; border-radius: 20px; color: {colors['text']};">
+                            📊 {task.get('points', 0)} points
+                        </span>
+                        <span style="background: {colors['border']}; padding: 0.25rem 1rem; border-radius: 20px; color: {colors['text']};">
+                            {level_info['verbs'].split(',')[0].strip()}
+                        </span>
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Display assignment description
-                st.info(f"**📋 Description:** {assign_description}")
-                
-                # Display submission guidelines
-                guidelines = assignment_data.get('submission_guidelines', [])
-                if guidelines:
-                    with st.expander("📤 Submission Guidelines", expanded=True):
-                        for guideline in guidelines:
-                            st.markdown(f"• {guideline}")
-                
-                # Display evaluation criteria
-                criteria = assignment_data.get('evaluation_criteria', [])
-                if criteria:
-                    with st.expander("📊 Evaluation Criteria", expanded=True):
-                        for c in criteria:
-                            weight = int(c.get('weight', 0) * 100)
-                            criterion = c.get('criterion', '')
-                            desc = c.get('description', '')
-                            st.markdown(f"• **{criterion}** ({weight}%): {desc}")
-                
-                # Display learning objectives
-                objectives = assignment_data.get('learning_objectives', [])
-                if objectives:
-                    with st.expander("🎯 Learning Objectives", expanded=True):
-                        for obj in objectives:
-                            st.markdown(f"✅ {obj}")
-                
-                st.divider()
-                st.markdown("### 📝 Assignment Tasks")
-                
-                # Display tasks
-                for idx, task in enumerate(tasks):
-                    task_id = task.get('task_id', f'task_{idx+1}')
-                    task_title = task.get('title', f'Task {idx+1}')
-                    task_desc = task.get('description', '')
-                    task_points = task.get('points', task.get('marks', 0))
+                # Task details expander
+                with st.expander(f"📋 Task {idx + 1} Details", expanded=False):
+                    # Requirements
                     task_requirements = task.get('requirements', [])
-                    task_hints = task.get('hints', [])
+                    if task_requirements:
+                        st.markdown("**📋 Requirements:**")
+                        for req in task_requirements:
+                            st.markdown(f"• {req}")
+                    
+                    # Expected Output
                     task_expected = task.get('expected_output', task.get('expected_deliverable', ''))
+                    if task_expected:
+                        st.markdown("**✅ Expected Output:**")
+                        st.info(task_expected)
+                    
+                    # Hints
+                    task_hints = task.get('hints', [])
+                    if task_hints:
+                        st.markdown("**💡 Hints:**")
+                        if isinstance(task_hints, list):
+                            for hint in task_hints:
+                                st.success(f"• {hint}")
+                        else:
+                            st.success(task_hints)
+                    
+                    # Bloom's justification
+                    bloom_justification = task.get('bloom_justification', '')
+                    if bloom_justification:
+                        st.markdown("**🧠 Bloom's Level Justification:**")
+                        st.caption(bloom_justification)
+                    
+                    # Starter code
                     task_starter = task.get('starter_code', '')
+                    if task_starter:
+                        with st.expander("📄 Starter Code", expanded=False):
+                            st.code(task_starter, language="python")
+                    
+                    # Solution (instructor only)
                     task_solution = task.get('solution_code', '')
+                    if task_solution and include_solutions:
+                        with st.expander("🔐 Solution (Instructor Only)", expanded=False):
+                            st.code(task_solution, language="python")
+        
+        # ========================================================================
+        # GENERATED FILES
+        # ========================================================================
+        if display_data['generated_files']:
+            st.divider()
+            st.markdown("### 📁 Generated Files")
+            
+            file_tabs = st.tabs([f"📄 {f.get('filename', 'file')}" for f in display_data['generated_files']])
+            for i, (file_tab, file_info) in enumerate(zip(file_tabs, display_data['generated_files'])):
+                with file_tab:
+                    filename = file_info.get('filename', 'file')
+                    content = file_info.get('content', '')
+                    file_type = file_info.get('file_type', '')
+                    language = file_info.get('language', 'text')
+                    description = file_info.get('description', '')
                     
-                    with st.expander(f"📌 {task_title} ({task_points} pts)", expanded=True):
-                        st.markdown(f"**📝 Description:**")
-                        st.markdown(task_desc)
-                        
-                        if task_requirements:
-                            st.markdown(f"**📋 Requirements:**")
-                            for req in task_requirements:
-                                st.markdown(f"• {req}")
-                        
-                        if task_expected:
-                            st.markdown(f"**✅ Expected Output:**")
-                            st.info(task_expected)
-                        
-                        if task_hints:
-                            st.markdown(f"**💡 Hints:**")
-                            if isinstance(task_hints, list):
-                                for hint in task_hints:
-                                    st.success(f"• {hint}")
-                            else:
-                                st.success(task_hints)
-                        
-                        # Show starter code if available
-                        if task_starter:
-                            with st.expander("📄 Starter Code", expanded=False):
-                                st.code(task_starter, language="python")
-                        
-                        # Show solution (hidden by default)
-                        if task_solution:
-                            with st.expander("🔐 Solution (Instructor Only)", expanded=False):
-                                st.code(task_solution, language="python")
-                        
-                        st.markdown(f"📊 **Points:** {task_points}")
-                
-                # Display generated files
-                generated_files = assignment_data.get('generated_files', [])
-                if generated_files:
-                    st.divider()
-                    st.markdown("### 📁 Generated Files")
+                    st.markdown(f"**{description}**")
+                    st.markdown(f"*Type: {file_type}*")
                     
-                    file_tabs = st.tabs([f"📄 {f.get('filename', 'file')}" for f in generated_files])
-                    for i, (file_tab, file_info) in enumerate(zip(file_tabs, generated_files)):
-                        with file_tab:
-                            filename = file_info.get('filename', 'file')
-                            content = file_info.get('content', '')
-                            file_type = file_info.get('file_type', '')
-                            language = file_info.get('language', 'text')
-                            description = file_info.get('description', '')
-                            
-                            st.markdown(f"**{description}**")
-                            st.markdown(f"*Type: {file_type}*")
-                            
-                            # Display code with syntax highlighting
-                            if language in ['python', 'javascript', 'java', 'cpp']:
-                                st.code(content, language=language)
-                            elif language == 'markdown':
-                                st.markdown(content)
-                            else:
-                                st.code(content)
-                            
-                            # Download button for each file
-                            st.download_button(
-                                label=f"📥 Download {filename}",
-                                data=content,
-                                file_name=filename,
-                                mime="text/plain",
-                                key=f"download_file_{i}"
-                            )
-                
-                st.divider()
-                
-                # Export buttons
-                col_exp1, col_exp2 = st.columns(2)
-                
-                with col_exp1:
-                    json_str = json.dumps(assignment_data, indent=2)
-                    st.download_button(
-                        label="📥 Download (JSON)",
-                        data=json_str,
-                        file_name=f"assignment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                        mime="application/json",
-                        use_container_width=True
-                    )
-                
-                with col_exp2:
-                    # Create text export
-                    text_export = f"""ASSIGNMENT: {assign_name}
-Course Code: {assign_code}
-Subject: {assign_subject}
-Type: {assignment_type}
-Difficulty: {assign_level}
-Total Points: {total_points}
-Due: {due_days} days
-Submission Format: {submission_format}
-
-DESCRIPTION:
-{assign_description}
-
-TASKS:
-"""
-                    for idx, task in enumerate(tasks, 1):
-                        text_export += f"\n{idx}. {task.get('title', f'Task {idx}')}\n"
-                        text_export += f"   Points: {task.get('marks', 0)}\n"
-                        text_export += f"   Description: {task.get('description', '')}\n"
-                        if task.get('expected_deliverable'):
-                            text_export += f"   Deliverable: {task.get('expected_deliverable', '')}\n"
+                    if language in ['python', 'javascript', 'java', 'cpp']:
+                        st.code(content, language=language)
+                    elif language == 'markdown':
+                        st.markdown(content)
+                    else:
+                        st.code(content)
                     
                     st.download_button(
-                        label="📄 Download (TXT)",
-                        data=text_export,
-                        file_name=f"assignment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                        label=f"📥 Download {filename}",
+                        data=content,
+                        file_name=filename,
                         mime="text/plain",
+                        key=f"download_file_display_{i}",
                         use_container_width=True
                     )
+        
+        st.divider()
+        
+        # ========================================================================
+        # EXPORT OPTIONS
+        # ========================================================================
+        col_exp1, col_exp2, col_exp3 = st.columns(3)
+        
+        with col_exp1:
+            json_str = json.dumps(st.session_state.generated_assignment, indent=2)
+            st.download_button(
+                label="📥 Download JSON",
+                data=json_str,
+                file_name=f"assignment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json",
+                use_container_width=True,
+                key="download_json_display"
+            )
+        
+        with col_exp2:
+            # Create markdown export with Bloom's taxonomy
+            md_export = f"""# {display_data['assign_name']}
+**Course:** {display_data['assign_code']} | **Subject:** {display_data['assign_subject']}  
+**Type:** {display_data['assignment_type']} | **Primary Bloom's Level:** {display_data['primary_bloom_level']}  
+**Total Points:** {display_data['total_points']} | **Due:** {display_data['due_days']} days
+
+## Description
+{display_data['assign_description']}
+
+## Bloom's Taxonomy Distribution
+"""
+            for level, weight in display_data['bloom_distribution'].items():
+                level_info = bloom_levels[level]
+                md_export += f"- {level_info['icon']} **{level}**: {weight}%\n"
+            
+            md_export += "\n## Tasks\n"
+            for idx, task in enumerate(display_data['tasks'], 1):
+                task_bloom = task.get('bloom_level', 'Understand')
+                level_info = bloom_levels.get(task_bloom, bloom_levels['Understand'])
+                md_export += f"\n### {idx}. {task.get('title', f'Task {idx}')} [{level_info['icon']} {task_bloom}]\n"
+                md_export += f"**Points:** {task.get('points', 0)}\n\n"
+                md_export += f"{task.get('description', '')}\n\n"
                 
-                # Chat-based feedback section
-                st.divider()
-                
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-                import traceback
-                st.code(traceback.format_exc())
+                requirements = task.get('requirements', [])
+                if requirements:
+                    md_export += "**Requirements:**\n"
+                    for req in requirements:
+                        md_export += f"- {req}\n"
+                    md_export += "\n"
+            
+            st.download_button(
+                label="📄 Download Markdown",
+                data=md_export,
+                file_name=f"assignment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                mime="text/markdown",
+                use_container_width=True,
+                key="download_md_display"
+            )
+        
+        with col_exp3:
+            # Create PDF-friendly HTML export
+            html_export = f"""
+            <html>
+            <head><title>{display_data['assign_name']}</title></head>
+            <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
+                <h1>{display_data['assign_name']}</h1>
+                <p><strong>Course:</strong> {display_data['assign_code']} | <strong>Subject:</strong> {display_data['assign_subject']}</p>
+                <p><strong>Bloom's Primary Level:</strong> {display_data['primary_bloom_level']}</p>
+                <p><strong>Total Points:</strong> {display_data['total_points']} | <strong>Due:</strong> {display_data['due_days']} days</p>
+                <hr>
+                <h2>Description</h2>
+                <p>{display_data['assign_description']}</p>
+                <hr>
+                <h2>Tasks</h2>
+            """
+            
+            for idx, task in enumerate(display_data['tasks'], 1):
+                html_export += f"""
+                <h3>{idx}. {task.get('title', f'Task {idx}')}</h3>
+                <p><strong>Points:</strong> {task.get('points', 0)}</p>
+                <p>{task.get('description', '')}</p>
+                """
+            
+            html_export += """
+            </body>
+            </html>
+            """
+            
+            st.download_button(
+                label="📄 Download HTML",
+                data=html_export,
+                file_name=f"assignment_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+                mime="text/html",
+                use_container_width=True,
+                key="download_html_display"
+            )
+
+
+
 
 
 # ============================================================================
-# TAB 4: CUSTOMISED QUESTION GENERATION WITH CHAT
+# TAB 4: CUSTOMISED QUESTION GENERATION WITH BLOOM'S TAXONOMY
 # ============================================================================
 
 with tab4:
-    display_header("💬 Customised Q&A Generation", "Chat-based question generation with Bloom's Taxonomy")
+    display_header("🎓 Bloom's Taxonomy Question Generator", "Generate MTech-level questions calibrated to specific cognitive levels")
     
-    st.markdown("### 🎯 Setup")
+    # ========================================================================
+    # CONFIGURATION SECTION
+    # ========================================================================
+    st.markdown("### ⚙️ Configuration")
     
-    # Configuration columns
-    col1, col2 = st.columns(2, gap="large")
+    # Input layout matching Tab 1 style
+    col1, col2, col3 = st.columns([2.4, 2.4, 2.4], gap="large")
     
     with col1:
         chat_topic = st.text_input(
-            " Chat Topic",
-            placeholder="e.g., Machine Learning Algorithms, Database Design, Web Security...",
-            key="chat_topic"
+            "📚 **Topic/Subject**",
+            placeholder="e.g., Deep Learning, Natural Language Processing, Computer Vision...",
+            key="bloom_topic",
+            help="Enter the main topic for question generation"
         )
     
     with col2:
-        chat_difficulty = st.selectbox(
-            " Difficulty Level",
-            get_difficulty_levels(),
-            key="chat_difficulty"
+        # All question types with emojis
+        question_types = {
+            "Multiple Choice": "📝",
+            "Long Answer": "📄",
+            "Short Answer": "📝",
+            "Diagram-Based": "📊",
+            "Code-Based": "💻",
+            "Code Implementation": "💻",
+            "Code Output Prediction": "🖥️",
+            "Coding Problem": "💻",
+            "Numerical Problem": "🔢",
+            "True/False": "✅",
+            "Essay": "📄",
+            "Scenario-Based": "🎯"
+        }
+        
+        question_type = st.selectbox(
+            "❓ **Question Type**",
+            options=list(question_types.keys()),
+            format_func=lambda x: f"{question_types[x]} {x}",
+            key="bloom_question_type",
+            help="Select the format of questions to generate"
         )
     
-    # Bloom's Taxonomy levels selection
-    st.markdown("**📚 Bloom's Taxonomy Levels**")
-    bloom_levels = ["Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"]
+    with col3:
+        st.markdown(" ")  # Placeholder for alignment
     
-    col_bloom1, col_bloom2, col_bloom3 = st.columns(3)
-    selected_blooms = []
-    
-    with col_bloom1:
-        if st.checkbox("Remember (Level 1)", value=True, key="bloom_remember"):
-            selected_blooms.append("Remember")
-        if st.checkbox("Understand (Level 2)", value=True, key="bloom_understand"):
-            selected_blooms.append("Understand")
-    
-    with col_bloom2:
-        if st.checkbox("Apply (Level 3)", value=True, key="bloom_apply"):
-            selected_blooms.append("Apply")
-        if st.checkbox("Analyze (Level 4)", value=False, key="bloom_analyze"):
-            selected_blooms.append("Analyze")
-    
-    with col_bloom3:
-        if st.checkbox("Evaluate (Level 5)", value=False, key="bloom_evaluate"):
-            selected_blooms.append("Evaluate")
-        if st.checkbox("Create (Level 6)", value=False, key="bloom_create"):
-            selected_blooms.append("Create")
-    
-    st.divider()
-    
-    # Chat history initialization
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
-    
-    if "custom_questions" not in st.session_state:
-        st.session_state.custom_questions = []
-    
-    # Chat interface
-    st.markdown("### 💭 Chat Interaction")
-    
-    # Display chat history
-    chat_container = st.container(height=400, border=True)
-    with chat_container:
-        for i, msg in enumerate(st.session_state.chat_history):
-            if msg["role"] == "user":
-                st.write(f"**You:** {msg['content']}")
-            else:
-                st.write(f"**AI:** {msg['content']}")
-    
+    # ========================================================================
+    # BLOOM'S TAXONOMY SELECTION - HIERARCHICAL RADIO
+    # ========================================================================
     st.markdown("---")
+    st.markdown("### 🧠 **Bloom's Taxonomy Level**")
+    st.markdown("*Select the highest cognitive level - all lower levels will be automatically included*")
     
-    # Chat input and controls
-    chat_col1, chat_col2 = st.columns([5, 1], gap="small")
+    # Initialize selected bloom level in session state
+    if "selected_bloom_level" not in st.session_state:
+        st.session_state.selected_bloom_level = "Apply"  # Default
     
-    with chat_col1:
-        user_input = st.text_input(
-            " Your message",
-            placeholder="Ask for questions, modify topics, request specific focus areas...",
-            key="chat_input"
+    # Define Bloom's taxonomy hierarchy
+    bloom_hierarchy = ["Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"]
+    
+    bloom_options = {
+        "Remember": "🔵 Recall facts and basic concepts",
+        "Understand": "🟢 Explain ideas or concepts",
+        "Apply": "🟠 Use information in new situations",
+        "Analyze": "🟣 Draw connections among ideas",
+        "Evaluate": "🔴 Justify a stand or decision",
+        "Create": "🟤 Produce new or original work"
+    }
+    
+    # Use radio for hierarchical selection
+    selected_top_level = st.radio(
+        "**Select highest cognitive level:**",
+        options=bloom_hierarchy,
+        index=bloom_hierarchy.index(st.session_state.selected_bloom_level),
+        horizontal=True,
+        key="bloom_hierarchy_radio",
+        help="Select the highest level - all lower levels will be automatically included"
+    )
+    
+    # Update session state
+    st.session_state.selected_bloom_level = selected_top_level
+    
+    # Calculate selected levels (all levels up to and including selected)
+    selected_levels = bloom_hierarchy[:bloom_hierarchy.index(selected_top_level) + 1]
+    
+    # Show selected levels as badges
+    if selected_levels:
+        badges_html = ""
+        for level in selected_levels:
+            color = {
+                "Remember": "#4299E1",
+                "Understand": "#48BB78", 
+                "Apply": "#ED8936",
+                "Analyze": "#9F7AEA",
+                "Evaluate": "#F56565",
+                "Create": "#D69E2E"
+            }.get(level, "#0EA5E9")
+            
+            badges_html += f'<span style="background: {color}; color: white; padding: 0.25rem 0.75rem; border-radius: 20px; margin-right: 0.5rem; font-size: 0.85rem;">{bloom_options[level].split()[0]} {level}</span>'
+        
+        st.markdown(f"""
+        <div style="margin: 1rem 0;">
+            <span style="color: var(--text-secondary); margin-right: 1rem;">✅ Selected levels:</span>
+            {badges_html}
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # ========================================================================
+    # TOPIC FOCUS (OPTIONAL)
+    # ========================================================================
+    with st.expander("🔍 **Topic Focus** (Optional)", expanded=False):
+        topic_focus = st.text_input(
+            "Specific subtopics",
+            placeholder="e.g., Transformers, Attention Mechanism, BERT (comma-separated)",
+            key="bloom_topic_focus",
+            help="Enter specific areas within the main topic to focus on"
+        )
+        
+        require_justification = st.checkbox(
+            "Include Bloom's level justification in explanation",
+            value=True,
+            key="bloom_justification",
+            help="Adds explicit reasoning why the question targets the selected Bloom's level"
         )
     
-    with chat_col2:
-        if st.button("📤 Send", use_container_width=True, key="send_msg"):
-            if user_input and chat_topic:
-                with st.spinner("Processing your request..."):
-                    try:
-                        # Add user message to history
-                        st.session_state.chat_history.append({
-                            "role": "user",
-                            "content": user_input
-                        })
-                        
-                        # Call API for chat-based question generation
-                        client = st.session_state.api_client
-                        response = client.generate_questions(
-                            subject=chat_topic,
-                            question_type="Multiple Choice",
-                            difficulty=chat_difficulty,
-                            count=1,
-                            additional_context=user_input
-                        )
-                        
-                        # Extract questions from response.data
-                        questions_list = response.get("data", []) if response else []
-                        if response and questions_list:
-                            question = questions_list[0] if questions_list else None
-                            if question:
-                                # Extract question text from question object
-                                question_text = question.get('question_text') or question.get('question') or str(question)
-                                st.session_state.custom_questions.append({
-                                    "question": question_text,
-                                    "bloom_level": user_input,
-                                    "timestamp": datetime.now().isoformat(),
-                                    "full_data": question
-                                })
-                                
-                                ai_response = f"Generated question with {chat_difficulty} difficulty for topic '{chat_topic}': {question_text}"
-                            else:
-                                ai_response = "Could not generate question. Please try again."
-                        else:
-                            ai_response = "Error in generation. Please try again."
-                        
-                        # Add AI response to history
-                        st.session_state.chat_history.append({
-                            "role": "assistant",
-                            "content": ai_response
-                        })
-                        
-                        st.rerun()
-                        
-                    except Exception as e:
-                        st.error(f"Error: {str(e)}")
-                        st.session_state.chat_history.append({
-                            "role": "assistant",
-                            "content": f"Error occurred: {str(e)}"
-                        })
-            else:
-                if not chat_topic:
-                    st.warning("Please enter a chat topic first")
+    # ========================================================================
+    # DOCUMENT UPLOAD SECTION
+    # ========================================================================
+    with st.expander("📄 **Document Upload for Context** (Optional)", expanded=False):
+        st.markdown("""
+        <div style="background: var(--card-bg); border: 2px dashed var(--border-color); border-radius: 10px; padding: 20px; text-align: center; margin-bottom: 15px;">
+            <span style="font-size: 2rem;">📎</span>
+            <p style="color: var(--text-secondary); margin: 10px 0;">Upload lecture notes, research papers, or any relevant document</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        uploaded_file = st.file_uploader(
+            "Choose a file",
+            type=['txt', 'pdf', 'docx', 'md'],
+            help="Upload TXT, PDF, DOCX, or MD files",
+            key="bloom_document_upload",
+            label_visibility="collapsed"
+        )
+        
+        if uploaded_file is not None:
+            try:
+                # Store file info in session state
+                st.session_state.bloom_uploaded_file = {
+                    "name": uploaded_file.name,
+                    "type": uploaded_file.type,
+                    "bytes": uploaded_file.getvalue(),
+                    "size": uploaded_file.size
+                }
+                
+                # Show file preview
+                st.markdown(f"""
+                <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; margin-top: 10px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 1.5rem;">📄</span>
+                        <div>
+                            <strong>{uploaded_file.name}</strong><br>
+                            <span style="font-size: 0.8rem; color: var(--text-secondary);">
+                                {(uploaded_file.size / 1024):.1f} KB • {uploaded_file.type}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            except Exception as e:
+                st.error(f"Error processing file: {str(e)}")
+                st.session_state.bloom_uploaded_file = None
+        else:
+            st.session_state.bloom_uploaded_file = None
+        
+        st.divider()
+        
+        # Manual context input
+        additional_context = st.text_area(
+            "📝 Additional context (optional)",
+            placeholder="Enter any specific instructions, requirements, or context for question generation...",
+            height=80,
+            key="bloom_additional_context",
+            help="Add any specific requirements or context"
+        )
     
     st.divider()
     
-    # Display generated questions
-    if st.session_state.custom_questions:
-        st.markdown("### ✅ Generated Questions")
-        
-        for i, q_data in enumerate(st.session_state.custom_questions, 1):
-            with st.expander(f"Question {i} - {q_data['bloom_level']}", expanded=False):
-                st.write(q_data["question"])
+    # ========================================================================
+    # CHAT INTERFACE
+    # ========================================================================
+    st.markdown("### 💬 Chat with Question Generator")
+    
+    # Initialize session state for chat
+    if "bloom_chat_history" not in st.session_state:
+        st.session_state.bloom_chat_history = []
+    
+    if "bloom_questions" not in st.session_state:
+        st.session_state.bloom_questions = []
+    
+    # Custom CSS for theme-aware text colors
+    st.markdown("""
+    <style>
+    /* Theme-aware text colors for answer and explanation boxes */
+    .answer-box {
+        background-color: #ecfdf5;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #10b981;
+        color: #1f2937 !important;
+    }
+    .explanation-box {
+        background-color: #fffbeb;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #f59e0b;
+        color: #1f2937 !important;
+    }
+    .options-box {
+        background-color: #f0f9ff;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #0EA5E9;
+        color: #1f2937 !important;
+        margin-bottom: 1rem;
+    }
+    
+    /* Dark mode overrides */
+    @media (prefers-color-scheme: dark) {
+        .answer-box {
+            background-color: #064e3b;
+            border-left: 4px solid #10b981;
+            color: #f3f4f6 !important;
+        }
+        .explanation-box {
+            background-color: #78350f;
+            border-left: 4px solid #f59e0b;
+            color: #f3f4f6 !important;
+        }
+        .options-box {
+            background-color: #1e3a8a;
+            border-left: 4px solid #0EA5E9;
+            color: #f3f4f6 !important;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Chat display
+    chat_container = st.container(height=300, border=True)
+    
+    with chat_container:
+        if not st.session_state.bloom_chat_history:
+            st.info("👋 Start a conversation! Ask for questions, request modifications, or specify focus areas.")
+        else:
+            for msg in st.session_state.bloom_chat_history:
+                if msg["role"] == "user":
+                    st.markdown(f"""
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                                padding: 12px; border-radius: 15px 15px 5px 15px; 
+                                margin: 10px 0; max-width: 80%; margin-left: auto;">
+                        <b style="color: white;">🧑‍💻 You:</b><br>
+                        <span style="color: white;">{msg['content']}</span>
+                        <div style="font-size: 0.7rem; color: rgba(255,255,255,0.7); margin-top: 5px;">{msg.get('timestamp', '')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div style="background: var(--card-bg); 
+                                padding: 12px; border-radius: 15px 15px 15px 5px; 
+                                margin: 10px 0; max-width: 80%; border: 1px solid var(--border-color);">
+                        <b style="color: #0EA5E9;">🤖 AI:</b><br>
+                        <span style="color: var(--text-primary);">{msg['content']}</span>
+                        <div style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 5px;">{msg.get('timestamp', '')}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+    
+    # Chat input
+    col1, col2 = st.columns([5, 1])
+    
+    with col1:
+        user_message = st.text_input(
+            "Message",
+            placeholder="Ask for questions, request modifications, or specify focus areas...",
+            key="bloom_user_input",
+            label_visibility="collapsed"
+        )
+    
+    with col2:
+        send_button = st.button("📤 Send", use_container_width=True, type="primary", key="bloom_send")
+    
+    # Action buttons
+    col_a, col_b, col_c = st.columns(3)
+    
+    with col_a:
+        generate_button = st.button(
+            "🎯 Generate Question", 
+            use_container_width=True,
+            key="bloom_generate",
+            disabled=not chat_topic or not st.session_state.selected_bloom_level
+        )
+    
+    with col_b:
+        if st.button("🗑️ Clear Chat", use_container_width=True, key="bloom_clear_chat"):
+            st.session_state.bloom_chat_history = []
+            st.rerun()
+    
+    with col_c:
+        if st.button("🧹 Clear All", use_container_width=True, key="bloom_clear_all"):
+            st.session_state.bloom_chat_history = []
+            st.session_state.bloom_questions = []
+            st.session_state.bloom_uploaded_file = None
+            st.rerun()
+    
+    st.divider()
+    
+    # ========================================================================
+    # HANDLE GENERATION
+    # ========================================================================
+    
+    # Handle send button
+    if send_button and user_message and chat_topic and st.session_state.selected_bloom_level:
+        with st.spinner("🧠 Generating calibrated question..."):
+            try:
+                from datetime import datetime
+                current_time = datetime.now().strftime("%H:%M")
                 
-                col_export = st.columns([1, 1, 1])
-                with col_export[0]:
-                    if st.button(f"📋 Copy", key=f"copy_q_{i}"):
-                        st.toast("Copied to clipboard!")
+                # Add user message to chat
+                st.session_state.bloom_chat_history.append({
+                    "role": "user",
+                    "content": user_message,
+                    "timestamp": current_time
+                })
                 
-                with col_export[1]:
-                    if st.button(f"❌ Remove", key=f"remove_q_{i}"):
-                        st.session_state.custom_questions.pop(i-1)
-                        st.rerun()
-        
-        # Export options
-        st.markdown("### 📥 Export Generated Questions")
-        
-        export_col1, export_col2 = st.columns(2)
-        
-        with export_col1:
-            if st.button("📄 Export as JSON", use_container_width=True):
-                json_data = json.dumps(st.session_state.custom_questions, indent=2)
-                st.download_button(
-                    label="Download JSON",
-                    data=json_data,
-                    file_name=f"customized_questions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                    mime="application/json"
-                )
-        
-        with export_col2:
-            if st.button("🧹 Clear All", use_container_width=True):
-                st.session_state.custom_questions = []
-                st.session_state.chat_history = []
-                st.rerun()
-    else:
-        st.info("💡 Start chatting to generate customised questions! Select Bloom's taxonomy levels above and ask questions or request specific topics.")
+                # Parse topic focus
+                topic_focus_list = [tf.strip() for tf in topic_focus.split(",")] if topic_focus else []
+                topic_focus_str = ",".join(topic_focus_list) if topic_focus_list else ""
+                
+                # Get API client
+                client = st.session_state.api_client
+                
+                # Check if we have an uploaded file
+                if hasattr(st.session_state, 'bloom_uploaded_file') and st.session_state.bloom_uploaded_file:
+                    # Use document-based generation
+                    response = client.generate_customized_question_with_document(
+                        topic=chat_topic,
+                        bloom_level=st.session_state.selected_bloom_level,
+                        file_bytes=st.session_state.bloom_uploaded_file["bytes"],
+                        file_type=st.session_state.bloom_uploaded_file["type"],
+                        question_type=question_type,
+                        chat_context=user_message,
+                        topic_focus=topic_focus_str,
+                        additional_context=additional_context if additional_context else None,
+                        require_bloom_justification=require_justification
+                    )
+                else:
+                    # Use regular generation
+                    response = client.generate_customized_question(
+                        topic=chat_topic,
+                        bloom_level=st.session_state.selected_bloom_level,
+                        question_type=question_type,
+                        chat_context=user_message,
+                        topic_focus=topic_focus_str,
+                        additional_context=additional_context if additional_context else None,
+                        require_bloom_justification=require_justification
+                    )
+                
+                # Process response
+                if response and "data" in response and response["data"]:
+                    question_data = response["data"][0]
+                    
+                    # Store question with all data (NEWEST FIRST - insert at beginning)
+                    st.session_state.bloom_questions.insert(0, {
+                        "topic": chat_topic,
+                        "bloom_level": st.session_state.selected_bloom_level,
+                        "all_levels": selected_levels.copy(),
+                        "question_type": question_type,
+                        "question": question_data.get("question_text", ""),
+                        "options": question_data.get("options", []),
+                        "answer": question_data.get("expected_answer", ""),
+                        "explanation": question_data.get("explanation", ""),
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    })
+                    
+                    # Interactive AI response with question preview
+                    question_preview = question_data.get("question_text", "")[:150] + "..." if len(question_data.get("question_text", "")) > 150 else question_data.get("question_text", "")
+                    
+                    ai_response = f"""✅ **Question Generated Successfully!**
 
+**📋 {st.session_state.selected_bloom_level} Level Question:**
+{question_preview}
+
+**📌 Type:** {question_type}
+
+You can view the complete question with options and answer in the "Generated Questions" section below.
+
+*What would you like to do next?*
+- Ask for another question on the same topic
+- Request a different Bloom's level
+- Ask for clarification or modification
+- Upload a document for more context"""
+                else:
+                    ai_response = "❌ Could not generate question. Please try again with different parameters."
+                
+                # Add AI response to chat
+                st.session_state.bloom_chat_history.append({
+                    "role": "assistant",
+                    "content": ai_response,
+                    "timestamp": datetime.now().strftime("%H:%M")
+                })
+                
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                st.session_state.bloom_chat_history.append({
+                    "role": "assistant",
+                    "content": f"❌ Error: {str(e)}",
+                    "timestamp": datetime.now().strftime("%H:%M")
+                })
+    
+    # Handle generate button
+    if generate_button:
+        with st.spinner(f"🎯 Generating {st.session_state.selected_bloom_level} level question..."):
+            try:
+                from datetime import datetime
+                
+                # Parse topic focus
+                topic_focus_list = [tf.strip() for tf in topic_focus.split(",")] if topic_focus else []
+                topic_focus_str = ",".join(topic_focus_list) if topic_focus_list else ""
+                
+                # Prepare chat context
+                chat_message = f"Generate a {st.session_state.selected_bloom_level} level question about {chat_topic}"
+                
+                # Get API client
+                client = st.session_state.api_client
+                
+                # Check if we have an uploaded file
+                if hasattr(st.session_state, 'bloom_uploaded_file') and st.session_state.bloom_uploaded_file:
+                    # Use document-based generation
+                    response = client.generate_customized_question_with_document(
+                        topic=chat_topic,
+                        bloom_level=st.session_state.selected_bloom_level,
+                        file_bytes=st.session_state.bloom_uploaded_file["bytes"],
+                        file_type=st.session_state.bloom_uploaded_file["type"],
+                        question_type=question_type,
+                        chat_context=chat_message,
+                        topic_focus=topic_focus_str,
+                        additional_context=additional_context if additional_context else None,
+                        require_bloom_justification=require_justification
+                    )
+                else:
+                    # Use regular generation
+                    response = client.generate_customized_question(
+                        topic=chat_topic,
+                        bloom_level=st.session_state.selected_bloom_level,
+                        question_type=question_type,
+                        chat_context=chat_message,
+                        topic_focus=topic_focus_str,
+                        additional_context=additional_context if additional_context else None,
+                        require_bloom_justification=require_justification
+                    )
+                
+                # Process response
+                if response and "data" in response and response["data"]:
+                    question_data = response["data"][0]
+                    
+                    # Store question with all data (NEWEST FIRST - insert at beginning)
+                    st.session_state.bloom_questions.insert(0, {
+                        "topic": chat_topic,
+                        "bloom_level": st.session_state.selected_bloom_level,
+                        "all_levels": selected_levels.copy(),
+                        "question_type": question_type,
+                        "question": question_data.get("question_text", ""),
+                        "options": question_data.get("options", []),
+                        "answer": question_data.get("expected_answer", ""),
+                        "explanation": question_data.get("explanation", ""),
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    })
+                    
+                    st.success(f"✅ {st.session_state.selected_bloom_level} level question generated successfully!")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to generate question")
+                    
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+    
+    st.divider()
+    
+    # ========================================================================
+    # GENERATED QUESTIONS DISPLAY - SHOWING NEWEST FIRST
+    # ========================================================================
+    
+    if st.session_state.bloom_questions:
+        st.markdown(f"### 📚 Generated Questions ({len(st.session_state.bloom_questions)})")
+        
+        # Show questions (already in reverse chronological order from insert(0))
+        for i, q in enumerate(st.session_state.bloom_questions[:10], 1):  # Show first 10 (newest)
+            with st.expander(f"**Q{i}** - {q['bloom_level']} - {q['topic'][:30]}...", expanded=False):
+                # Question text
+                st.markdown("**❓ Question:**")
+                st.markdown(q['question'])
+                
+                # Options - with theme-aware styling
+                if q.get('options') and len(q['options']) > 0:
+                    st.markdown("**🎯 Options:**")
+                    options_html = "<div class='options-box'>"
+                    for opt in q['options']:
+                        options_html += f"<div>{opt}</div>"
+                    options_html += "</div>"
+                    st.markdown(options_html, unsafe_allow_html=True)
+                
+                # Answer and explanation in columns
+                col_q1, col_q2 = st.columns(2)
+                
+                with col_q1:
+                    st.markdown("**✅ Answer:**")
+                    st.markdown(f"<div class='answer-box'>{q['answer']}</div>", unsafe_allow_html=True)
+                
+                with col_q2:
+                    st.markdown("**📝 Explanation:**")
+                    st.markdown(f"<div class='explanation-box'>{q['explanation']}</div>", unsafe_allow_html=True)
+                
+                # Metadata
+                st.caption(f"*Type: {q['question_type']} | Includes levels: {', '.join(q.get('all_levels', [q['bloom_level']]))}*")
+                
+                if st.button(f"🗑️ Remove", key=f"remove_q_{i}_{hash(q['timestamp'])}"):
+                    st.session_state.bloom_questions.pop(i-1)
+                    st.rerun()
+        
+        # Export section
+        st.divider()
+        st.markdown("### 📥 Export Options")
+        
+        col_exp1, col_exp2, col_exp3 = st.columns(3)
+        
+        with col_exp1:
+            export_data = json.dumps(st.session_state.bloom_questions, indent=2, default=str)
+            st.download_button(
+                label="📄 Export as JSON",
+                data=export_data,
+                file_name=f"bloom_questions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json",
+                use_container_width=True
+            )
+        
+        with col_exp2:
+            # Create CSV export
+            csv_str = "Topic,Bloom Level,Question Type,Question,Options,Answer,Explanation,Timestamp\n"
+            for q in st.session_state.bloom_questions:
+                options_str = " | ".join(q.get('options', [])) if q.get('options') else ""
+                # Escape quotes in fields
+                topic = q["topic"].replace('"', '""')
+                bloom = q["bloom_level"].replace('"', '""')
+                q_type = q["question_type"].replace('"', '""')
+                question = q["question"].replace('"', '""')
+                answer = q["answer"].replace('"', '""')
+                explanation = q["explanation"].replace('"', '""')
+                timestamp = q["timestamp"].replace('"', '""')
+                options_str = options_str.replace('"', '""')
+                
+                csv_str += f'"{topic}","{bloom}","{q_type}","{question}","{options_str}","{answer}","{explanation}","{timestamp}"\n'
+            
+            st.download_button(
+                label="📊 Export as CSV",
+                data=csv_str,
+                file_name=f"bloom_questions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        
+        with col_exp3:
+            if st.button("🧹 Clear All Questions", use_container_width=True):
+                st.session_state.bloom_questions = []
+                st.rerun()
+    
+    else:
+        st.info("""
+        ### 🎯 No questions generated yet
+        
+        1. **Enter a topic** above
+        2. **Select a Bloom's level** (higher levels automatically include lower ones)
+        3. **Upload a document** for context (optional)
+        4. **Chat** with the AI or click 'Generate Question'
+        
+        The AI will generate questions calibrated to your selected cognitive level!
+        """)
 
 if __name__ == "__main__":
     pass

@@ -373,12 +373,14 @@ def format_question_response(
     question_id: str,
     subject: str,
     question_type: str,
-    difficulty_level: str,
     question_text: str,
+    expected_answer: str,
     options: Optional[List[str]] = None,
-    expected_answer: str = "",
-    explanation: str = "",
+    explanation: Optional[str] = None,
     tags: Optional[List[str]] = None,
+    difficulty_level: Optional[str] = None,
+    bloom_level: Optional[str] = None,  # ADDED: Bloom's taxonomy level parameter
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Format a question into the standard response structure.
@@ -387,12 +389,14 @@ def format_question_response(
         question_id: Unique question identifier
         subject: Subject area
         question_type: Type of question
-        difficulty_level: Difficulty level
         question_text: The question
-        options: Optional answer options
         expected_answer: Expected answer
+        options: Optional answer options
         explanation: Answer explanation
         tags: Optional tags
+        difficulty_level: Optional difficulty level
+        bloom_level: Optional Bloom's taxonomy level  # ADDED
+        metadata: Optional additional metadata
 
     Returns:
         Dict[str, Any]: Formatted question dictionary
@@ -424,17 +428,29 @@ def format_question_response(
         except Exception:
             tags = []
     
-    return {
+    # Build the question dictionary
+    question = {
         "id": str(question_id),
         "subject": str(subject),
         "question_type": str(question_type),
-        "difficulty_level": str(difficulty_level),
         "question_text": question_text,
         "options": options,
         "expected_answer": expected_answer,
         "explanation": explanation,
         "tags": tags,
     }
+    
+    # Add optional fields if they exist
+    if difficulty_level:
+        question["difficulty_level"] = str(difficulty_level)
+    
+    if bloom_level:  # ADDED
+        question["bloom_level"] = str(bloom_level)
+    
+    if metadata:
+        question["metadata"] = metadata
+    
+    return question
 
 
 def chunk_list(lst: List[Any], chunk_size: int) -> List[List[Any]]:

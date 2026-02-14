@@ -7,7 +7,7 @@ This module provides utilities for communicating with the backend API.
 import requests
 import logging
 import time
-from typing import Dict, List, Any, Optional, Callable
+from typing import Dict, List, Any, Optional, Callable, Union
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from config import StreamlitConfig
@@ -38,8 +38,8 @@ class APIClient:
     def _setup_retries(self):
         """Setup retry strategy with exponential backoff."""
         retry_strategy = Retry(
-            total=3,  # Total retries
-            backoff_factor=2,  # 2^x seconds backoff (1s, 2s, 4s)
+            total=3,
+            backoff_factor=2,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "OPTIONS", "POST"]
         )
@@ -94,8 +94,7 @@ class APIClient:
                 logger.warning(f"Request timeout (attempt {retry_count + 1}): {url}")
                 retry_count += 1
                 if retry_count < max_retries:
-                    wait_time = 2 ** retry_count  # Exponential backoff
-                    logger.info(f"Retrying in {wait_time} seconds...")
+                    wait_time = 2 ** retry_count
                     if progress_callback:
                         progress_callback(f"Timeout, retrying in {wait_time}s...")
                     time.sleep(wait_time)
@@ -107,7 +106,6 @@ class APIClient:
                 retry_count += 1
                 if retry_count < max_retries:
                     wait_time = 2 ** retry_count
-                    logger.info(f"Retrying in {wait_time} seconds...")
                     if progress_callback:
                         progress_callback(f"Connection error, retrying in {wait_time}s...")
                     time.sleep(wait_time)
@@ -127,14 +125,10 @@ class APIClient:
 
         Returns:
             bool: True if API is healthy
-
-        Raises:
-            requests.exceptions.RequestException: If health check fails
         """
         try:
             response = self._make_request("GET", "/health")
             return response.get("status") == "healthy"
-
         except Exception as e:
             logger.error(f"Health check failed: {str(e)}")
             return False
@@ -145,23 +139,16 @@ class APIClient:
 
         Returns:
             List[str]: Available subjects
-
-        Raises:
-            requests.exceptions.RequestException: If request fails
         """
         try:
             logger.info("Fetching subjects")
-
             response = self._make_request(
                 "GET",
                 f"{StreamlitConfig.API_V1_PREFIX}/questions/subjects"
             )
-
             subjects = response.get("subjects", [])
             logger.info(f"Retrieved {len(subjects)} subjects")
-
             return subjects
-
         except Exception as e:
             logger.error(f"Error fetching subjects: {str(e)}")
             raise
@@ -172,20 +159,14 @@ class APIClient:
 
         Returns:
             Dict[str, Any]: Question type and difficulty information
-
-        Raises:
-            requests.exceptions.RequestException: If request fails
         """
         try:
             logger.info("Fetching question info")
-
             response = self._make_request(
                 "GET",
                 f"{StreamlitConfig.API_V1_PREFIX}/questions/info"
             )
-
             return response
-
         except Exception as e:
             logger.error(f"Error fetching question info: {str(e)}")
             raise
@@ -201,7 +182,7 @@ class APIClient:
         progress_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         """
-        Generate questions using the backend API.
+        Generate questions using the backend API (legacy method).
 
         Args:
             subject: Subject area
@@ -209,20 +190,14 @@ class APIClient:
             difficulty_level: Difficulty level
             num_questions: Number of questions
             additional_context: Optional additional context
-            diagram_format: Optional format for diagrams (Mermaid/ASCII)
+            diagram_format: Optional format for diagrams
             progress_callback: Optional callback for progress updates
 
         Returns:
             Dict[str, Any]: Generated questions response
-
-        Raises:
-            requests.exceptions.RequestException: If request fails
         """
         try:
-            logger.info(
-                f"Generating {num_questions} {question_type} questions "
-                f"for {subject} at {difficulty_level} level"
-            )
+            logger.info(f"Generating {num_questions} {question_type} questions for {subject}")
             
             if progress_callback:
                 progress_callback(f"Generating {num_questions} questions...")
@@ -236,7 +211,6 @@ class APIClient:
 
             if additional_context:
                 payload["additional_context"] = additional_context
-            
             if diagram_format:
                 payload["diagram_format"] = diagram_format
 
@@ -248,16 +222,516 @@ class APIClient:
             )
 
             logger.info(f"Successfully generated questions")
-            if progress_callback:
-                progress_callback("✅ Questions generated successfully!")
-
             return response
 
         except Exception as e:
             logger.error(f"Error generating questions: {str(e)}")
+            raise
+
+    # ========================================================================
+    # BLOOM'S TAXONOMY CUSTOMIZED QUESTION GENERATION
+    # ========================================================================
+    
+    def generate_customized_question(
+        self,
+        topic: str,
+        bloom_level: str,
+        question_type: str = "Multiple Choice",
+        chat_context: str = "",
+        topic_focus: str = "",
+        document_text: Optional[str] = None,
+        additional_context: Optional[str] = None,
+        require_bloom_justification: bool = True,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate a customized question calibrated to a specific Bloom's taxonomy level.
+        
+        Args:
+            topic: Main subject/topic for question
+            bloom_level: Bloom's taxonomy level
+            question_type: Type of question to generate
+            chat_context: User's chat message or context for customization
+            topic_focus: Comma-separated specific subtopics to focus on
+            document_text: Extracted text from uploaded document
+            additional_context: Additional context from user
+            require_bloom_justification: Whether explanations should justify Bloom's level
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            Dict[str, Any]: Generated customized question with Bloom's calibration
+        """
+        try:
+            logger.info(f"Generating customized {bloom_level} level question for topic: {topic}")
+            
+            if progress_callback:
+                progress_callback(f"🎯 Generating {bloom_level} level question...")
+
+            # Create request body as JSON
+            payload = {
+                "topic": topic,
+                "bloom_level": bloom_level,
+                "question_type": question_type,
+                "chat_context": chat_context,
+                "topic_focus": topic_focus,
+                "document_text": document_text,
+                "additional_context": additional_context,
+                "require_bloom_justification": require_bloom_justification
+            }
+
+            # Remove None values
+            payload = {k: v for k, v in payload.items() if v is not None}
+
+            response = self._make_request(
+                "POST",
+                f"{StreamlitConfig.API_V1_PREFIX}/questions/customized",
+                json=payload,
+                progress_callback=progress_callback,
+            )
+
+            logger.info(f"Successfully generated customized {bloom_level} question")
+            return response
+
+        except Exception as e:
+            logger.error(f"Error generating customized question: {str(e)}")
             if progress_callback:
                 progress_callback(f"❌ Error: {str(e)}")
             raise
+
+    def generate_customized_question_with_document(
+        self,
+        topic: str,
+        bloom_level: str,
+        file_bytes: bytes,
+        file_type: str,
+        question_type: str = "Multiple Choice",
+        chat_context: str = "",
+        topic_focus: str = "",
+        additional_context: Optional[str] = None,
+        require_bloom_justification: bool = True,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate a customized question with document upload.
+        First parses the document, then generates question with extracted context.
+        
+        Args:
+            topic: Main subject/topic for question
+            bloom_level: Bloom's taxonomy level
+            file_bytes: Uploaded file bytes
+            file_type: MIME type of the file
+            question_type: Type of question
+            chat_context: User's chat message
+            topic_focus: Specific subtopics to focus on
+            additional_context: Additional context
+            require_bloom_justification: Whether to include justification
+            progress_callback: Optional callback
+
+        Returns:
+            Dict[str, Any]: Generated question
+        """
+        try:
+            # Step 1: Parse document
+            if progress_callback:
+                progress_callback("📄 Parsing document...")
+            
+            if file_type == "application/pdf":
+                parse_response = self.parse_pdf(file_bytes)
+            elif file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                parse_response = self.parse_docx(file_bytes)
+            else:  # text/plain
+                parse_response = {"text": file_bytes.decode('utf-8')}
+            
+            document_text = parse_response.get("text", "")
+            
+            if progress_callback:
+                progress_callback(f"✅ Document parsed: {len(document_text)} characters")
+            
+            # Step 2: Generate question with document context
+            return self.generate_customized_question(
+                topic=topic,
+                bloom_level=bloom_level,
+                question_type=question_type,
+                chat_context=chat_context,
+                topic_focus=topic_focus,
+                document_text=document_text,
+                additional_context=additional_context,
+                require_bloom_justification=require_bloom_justification,
+                progress_callback=progress_callback
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in document-based question generation: {str(e)}")
+            if progress_callback:
+                progress_callback(f"❌ Error: {str(e)}")
+            raise
+
+    def generate_customized_questions_batch(
+        self,
+        requests: List[Dict[str, Any]],
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate multiple customized questions in batch.
+        
+        Args:
+            requests: List of request parameters, each containing:
+                - topic: Subject area
+                - bloom_level: Bloom's taxonomy level
+                - question_type: Type of question
+                - chat_context: Optional context
+                - topic_focus: Optional specific subtopics
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            List[Dict[str, Any]]: Generated questions
+        """
+        try:
+            logger.info(f"Generating batch of {len(requests)} customized questions")
+            
+            if progress_callback:
+                progress_callback(f"📚 Generating {len(requests)} questions...")
+
+            response = self._make_request(
+                "POST",
+                f"{StreamlitConfig.API_V1_PREFIX}/questions/customized/batch",
+                json=requests,
+                progress_callback=progress_callback,
+            )
+
+            logger.info(f"Successfully generated batch of {len(requests)} questions")
+            return response
+
+        except Exception as e:
+            logger.error(f"Error generating batch questions: {str(e)}")
+            raise
+
+    def generate_customized_question_legacy(
+        self,
+        topic: str,
+        difficulty: str,
+        chat_context: str = "",
+        question_type: str = "Multiple Choice",
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate customized question using legacy difficulty levels.
+        Maps Easy/Medium/Hard to Bloom's taxonomy levels.
+        
+        Args:
+            topic: Main topic for question
+            difficulty: Traditional difficulty (Easy, Medium, Hard)
+            chat_context: User's chat message
+            question_type: Type of question
+            progress_callback: Optional callback
+
+        Returns:
+            Dict[str, Any]: Generated question with Bloom's mapping
+        """
+        try:
+            logger.info(f"Generating legacy customized question with difficulty: {difficulty}")
+            
+            if progress_callback:
+                progress_callback(f"🔄 Converting {difficulty} to Bloom's level...")
+
+            params = {
+                "topic": topic,
+                "difficulty": difficulty,
+                "chat_context": chat_context,
+                "question_type": question_type,
+            }
+
+            response = self._make_request(
+                "POST",
+                f"{StreamlitConfig.API_V1_PREFIX}/questions/customized/legacy",
+                params=params,
+                progress_callback=progress_callback,
+            )
+
+            logger.info(f"Successfully generated legacy customized question")
+            return response
+
+        except Exception as e:
+            logger.error(f"Error generating legacy customized question: {str(e)}")
+            raise
+
+    # ========================================================================
+    # BLOOM'S TAXONOMY UTILITY METHODS
+    # ========================================================================
+    
+    def get_bloom_taxonomy_levels(self) -> List[str]:
+        """
+        Get available Bloom's taxonomy levels.
+        
+        Returns:
+            List[str]: List of Bloom's taxonomy levels
+        """
+        return ["Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"]
+    
+    def get_bloom_level_description(self, bloom_level: str) -> Dict[str, str]:
+        """
+        Get description and action verbs for a Bloom's taxonomy level.
+        
+        Args:
+            bloom_level: Bloom's taxonomy level
+            
+        Returns:
+            Dict with description, cognitive demand, and action verbs
+        """
+        descriptions = {
+            "Remember": {
+                "description": "Recall facts, terms, basic concepts",
+                "cognitive_demand": "Lowest - simple recall",
+                "verbs": "Define, List, Recall, Name, Identify, State",
+                "icon": "🔵"
+            },
+            "Understand": {
+                "description": "Explain ideas or concepts",
+                "cognitive_demand": "Low - demonstrate comprehension",
+                "verbs": "Explain, Describe, Summarize, Interpret, Paraphrase, Classify",
+                "icon": "🟢"
+            },
+            "Apply": {
+                "description": "Use information in new situations",
+                "cognitive_demand": "Medium - execute or implement",
+                "verbs": "Apply, Demonstrate, Implement, Solve, Use, Compute",
+                "icon": "🟠"
+            },
+            "Analyze": {
+                "description": "Draw connections among ideas",
+                "cognitive_demand": "Medium-High - distinguish, organize, attribute",
+                "verbs": "Analyze, Compare, Contrast, Differentiate, Examine, Investigate",
+                "icon": "🟣"
+            },
+            "Evaluate": {
+                "description": "Justify a stand or decision",
+                "cognitive_demand": "High - check, critique, judge",
+                "verbs": "Evaluate, Critique, Assess, Justify, Debate, Recommend",
+                "icon": "🔴"
+            },
+            "Create": {
+                "description": "Produce new or original work",
+                "cognitive_demand": "Highest - generate, plan, produce",
+                "verbs": "Design, Develop, Formulate, Propose, Construct, Synthesize",
+                "icon": "🟤"
+            }
+        }
+        return descriptions.get(bloom_level, descriptions["Understand"])
+
+    # ========================================================================
+    # ASSIGNMENT METHODS (FIXED FOR QUERY PARAMETERS)
+    # ========================================================================
+
+    def generate_assignment(
+        self,
+        name: str,
+        course_code: str,
+        subject: str,
+        assignment_type: str,
+        difficulty: str,
+        max_marks: int,
+        duration_days: int,
+        num_tasks: int,
+        description: str,
+        include_solutions: bool = True,
+        include_starter_code: bool = True,
+        include_test_cases: bool = True,
+        topic: Optional[str] = None,
+        bloom_distribution: Optional[Dict[str, int]] = None,
+        chat_context: Optional[str] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate an assignment with Bloom's taxonomy support.
+        Uses query parameters as expected by the backend.
+
+        Args:
+            name: Assignment name
+            course_code: Course code
+            subject: Subject area
+            assignment_type: Type of assignment
+            difficulty: Difficulty level
+            max_marks: Maximum marks
+            duration_days: Duration in days
+            num_tasks: Number of tasks
+            description: Assignment description
+            include_solutions: Whether to include solutions
+            include_starter_code: Whether to include starter code
+            include_test_cases: Whether to include test cases
+            topic: Specific topic
+            bloom_distribution: Distribution of Bloom's levels
+            chat_context: Additional context from chat
+            progress_callback: Optional callback
+
+        Returns:
+            Dict[str, Any]: Generated assignment
+        """
+        try:
+            logger.info(f"Generating assignment with Bloom's taxonomy: {name}")
+            
+            if progress_callback:
+                progress_callback("📚 Generating assignment with Bloom's taxonomy...")
+
+            # Map assignment type to backend format
+            type_mapping = {
+                "Coding Problem": "coding",
+                "Essay": "theoretical",
+                "Case Study": "theoretical",
+                "Problem Solving": "mixed",
+                "Research": "theoretical",
+                "Project": "project",
+                "Theoretical": "theoretical",
+                "Practical": "lab"
+            }
+            backend_type = type_mapping.get(assignment_type, "coding")
+
+            # Prepare query parameters (not JSON body)
+            params = {
+                "name": name,
+                "course_code": course_code,
+                "subject": subject,
+                "assignment_type": backend_type,
+                "difficulty": difficulty.lower() if difficulty != "custom" else "custom",
+                "max_marks": max_marks,
+                "duration_days": duration_days,
+                "num_tasks": num_tasks,
+                "description": description,
+                "include_solutions": str(include_solutions).lower(),
+                "include_starter_code": str(include_starter_code).lower(),
+                "include_test_cases": str(include_test_cases).lower()
+            }
+
+            # Add optional parameters
+            if topic:
+                params["topic"] = topic
+            
+            # Add Bloom's distribution if provided
+            if bloom_distribution:
+                # Convert dict to JSON string for query parameter
+                import json
+                params["bloom_distribution"] = json.dumps(bloom_distribution)
+            
+            if chat_context:
+                params["chat_context"] = chat_context
+
+            # Make request with query parameters (not JSON)
+            response = self._make_request(
+                "POST",
+                f"{StreamlitConfig.API_V1_PREFIX}/documents/assignments/generate",
+                params=params,  # Using params, not json
+                progress_callback=progress_callback,
+            )
+
+            logger.info(f"Successfully generated assignment: {name}")
+            return response
+
+        except Exception as e:
+            logger.error(f"Error generating assignment: {str(e)}")
+            raise
+
+    def generate_assignment_from_document(
+        self,
+        document_text: str,
+        name: str,
+        course_code: str,
+        subject: str,
+        assignment_type: str,
+        difficulty: str,
+        max_marks: int,
+        duration_days: int,
+        num_tasks: int,
+        description: str,
+        bloom_distribution: Optional[Dict[str, int]] = None,
+        chat_context: Optional[str] = None,
+        topic: Optional[str] = None,
+        progress_callback: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate an assignment from document context with Bloom's taxonomy.
+        Uses query parameters as expected by the backend.
+
+        Args:
+            document_text: Extracted text from document
+            name: Assignment name
+            course_code: Course code
+            subject: Subject area
+            assignment_type: Type of assignment
+            difficulty: Difficulty level
+            max_marks: Maximum marks
+            duration_days: Duration in days
+            num_tasks: Number of tasks
+            description: Assignment description
+            bloom_distribution: Distribution of Bloom's levels
+            chat_context: Additional context from chat
+            topic: Specific topic
+            progress_callback: Optional callback
+
+        Returns:
+            Dict[str, Any]: Generated assignment
+        """
+        try:
+            logger.info(f"Generating assignment from document with Bloom's taxonomy: {name}")
+            
+            if progress_callback:
+                progress_callback("📄 Generating assignment from document with Bloom's taxonomy...")
+
+            # Map assignment type to backend format
+            type_mapping = {
+                "Coding Problem": "coding",
+                "Essay": "theoretical",
+                "Case Study": "theoretical",
+                "Problem Solving": "mixed",
+                "Research": "theoretical",
+                "Project": "project",
+                "Theoretical": "theoretical",
+                "Practical": "lab"
+            }
+            backend_type = type_mapping.get(assignment_type, "coding")
+
+            # Prepare query parameters
+            params = {
+                "name": name,
+                "course_code": course_code,
+                "subject": subject,
+                "assignment_type": backend_type,
+                "difficulty": difficulty.lower() if difficulty != "custom" else "custom",
+                "max_marks": max_marks,
+                "duration_days": duration_days,
+                "num_tasks": num_tasks,
+                "description": description,
+                "document_text": document_text
+            }
+
+            # Add optional parameters
+            if topic:
+                params["topic"] = topic
+            
+            # Add Bloom's distribution if provided
+            if bloom_distribution:
+                import json
+                params["bloom_distribution"] = json.dumps(bloom_distribution)
+            
+            if chat_context:
+                params["chat_context"] = chat_context
+
+            # Make request with query parameters
+            response = self._make_request(
+                "POST",
+                f"{StreamlitConfig.API_V1_PREFIX}/documents/generate-assignment",
+                params=params,  # Using params, not json
+                progress_callback=progress_callback,
+            )
+
+            logger.info(f"Successfully generated assignment from document: {name}")
+            return response
+
+        except Exception as e:
+            logger.error(f"Error generating assignment from document: {str(e)}")
+            raise
+
+    # ========================================================================
+    # PAPER AND DOCUMENT METHODS
+    # ========================================================================
 
     def generate_paper(
         self,
@@ -267,22 +741,19 @@ class APIClient:
         total_marks: int,
         duration_minutes: int,
         question_type_config: list,
-        bloom_distribution: dict | None = None,
-        difficulty_distribution: dict | None = None,
-        subtopics: list | None = None,
-        instructions: str | None = None,
+        bloom_distribution: Optional[Dict[str, int]] = None,
+        difficulty_distribution: Optional[Dict[str, int]] = None,
+        subtopics: Optional[List[str]] = None,
+        instructions: Optional[str] = None,
         progress_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
-        """
-        Generate a question paper using the backend API.
-        """
+        """Generate a question paper using the backend API."""
         try:
             logger.info(f"Generating paper: {exam_name}")
-
+            
             if progress_callback:
                 progress_callback("Generating question paper...")
 
-            # Default Bloom distribution if not provided
             if bloom_distribution is None:
                 bloom_distribution = {
                     "Remember": 10,
@@ -309,15 +780,6 @@ class APIClient:
                 "enable_explainability": True
             }
 
-            if difficulty_distribution is not None:
-                payload["difficulty_distribution"] = difficulty_distribution
-
-            if subtopics:
-                payload["subtopics"] = subtopics
-
-            if instructions:
-                payload["instructions"] = instructions
-
             response = self._make_request(
                 "POST",
                 f"{StreamlitConfig.API_V1_PREFIX}/papers/generate",
@@ -326,181 +788,56 @@ class APIClient:
             )
 
             logger.info(f"Successfully generated paper: {exam_name}")
-            if progress_callback:
-                progress_callback("✅ Paper generated successfully!")
-
             return response
 
         except Exception as e:
             logger.error(f"Error generating paper: {str(e)}")
-            if progress_callback:
-                progress_callback(f"❌ Error: {str(e)}")
-            raise
-
-    def generate_assignment(
-        self,
-        name: str,
-        course_code: str,
-        subject: str,
-        assignment_type: str,
-        difficulty: str,
-        max_marks: int,
-        duration_days: int,
-        num_tasks: int,
-        description: str,
-        include_solutions: bool = True,
-        include_starter_code: bool = True,
-        include_test_cases: bool = True,
-        topic: Optional[str] = None,
-        progress_callback: Optional[Callable[[str], None]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Generate an assignment using the backend API.
-
-        Args:
-            name: Assignment name
-            course_code: Course code
-            subject: Subject area
-            assignment_type: Type of assignment
-            difficulty: Difficulty level
-            max_marks: Maximum marks
-            duration_days: Duration in days
-            num_tasks: Number of tasks
-            description: Assignment description
-            include_solutions: Include solution files
-            include_starter_code: Include starter code files
-            include_test_cases: Include test case files
-            topic: Specific topic (defaults to subject)
-            progress_callback: Optional callback for progress updates
-
-        Returns:
-            Dict[str, Any]: Generated assignment response
-        """
-        try:
-            logger.info(f"Generating assignment: {name}")
-            
-            if progress_callback:
-                progress_callback("Generating assignment with LangGraph workflow...")
-
-            # Map frontend assignment types to backend types
-            type_mapping = {
-                "Coding Problem": "coding",
-                "Essay": "theoretical",
-                "Case Study": "theoretical",
-                "Problem Solving": "mixed",
-                "Research": "theoretical",
-                "Project": "project",
-                "Theoretical": "theoretical",
-                "Practical": "lab"
-            }
-            backend_type = type_mapping.get(assignment_type, "coding")
-
-            payload = {
-                "name": name,
-                "course_code": course_code,
-                "subject": subject,
-                "topic": topic or subject,
-                "assignment_type": backend_type,
-                "difficulty": difficulty.lower(),
-                "max_marks": max_marks,
-                "duration_days": duration_days,
-                "num_tasks": num_tasks,
-                "description": description,
-                "include_solutions": include_solutions,
-                "include_starter_code": include_starter_code,
-                "include_test_cases": include_test_cases,
-            }
-
-            response = self._make_request(
-                "POST",
-                f"{StreamlitConfig.API_V1_PREFIX}/documents/assignments/generate",
-                json=payload,
-                progress_callback=progress_callback,
-            )
-
-            logger.info(f"Successfully generated assignment: {name}")
-            if progress_callback:
-                progress_callback("✅ Assignment generated successfully!")
-
-            return response
-
-        except Exception as e:
-            logger.error(f"Error generating assignment: {str(e)}")
-            if progress_callback:
-                progress_callback(f"❌ Error: {str(e)}")
             raise
 
     def get_bloom_levels(self) -> Dict[str, Any]:
-        """
-        Get available Bloom's taxonomy levels.
-
-        Returns:
-            Dict with Bloom levels and descriptions
-        """
+        """Get available Bloom's taxonomy levels."""
         try:
             response = self._make_request(
                 "GET",
                 f"{StreamlitConfig.API_V1_PREFIX}/papers/bloom-levels"
             )
-            logger.info("Successfully fetched Bloom levels")
             return response
         except Exception as e:
             logger.error(f"Error fetching Bloom levels: {str(e)}")
             raise
 
     def get_question_types(self) -> Dict[str, Any]:
-        """
-        Get question type to Bloom level mappings.
-
-        Returns:
-            Dict with question types and their Bloom constraints
-        """
+        """Get question type to Bloom level mappings."""
         try:
             response = self._make_request(
                 "GET",
                 f"{StreamlitConfig.API_V1_PREFIX}/papers/question-types"
             )
-            logger.info("Successfully fetched question types")
             return response
         except Exception as e:
             logger.error(f"Error fetching question types: {str(e)}")
             raise
 
     def get_domain_ontologies(self, subject: str) -> Dict[str, Any]:
-        """
-        Get domain-specific concepts and relationships.
-
-        Args:
-            subject: The subject domain
-
-        Returns:
-            Dict with domain ontology information
-        """
+        """Get domain-specific concepts and relationships."""
         try:
             response = self._make_request(
                 "GET",
                 f"{StreamlitConfig.API_V1_PREFIX}/papers/domain-ontologies",
                 params={"subject": subject}
             )
-            logger.info(f"Successfully fetched domain ontologies for {subject}")
             return response
         except Exception as e:
             logger.error(f"Error fetching domain ontologies: {str(e)}")
             raise
 
     def get_template_examples(self) -> Dict[str, Any]:
-        """
-        Get template configuration examples.
-
-        Returns:
-            Dict with template examples
-        """
+        """Get template configuration examples."""
         try:
             response = self._make_request(
                 "GET",
                 f"{StreamlitConfig.API_V1_PREFIX}/papers/template-examples"
             )
-            logger.info("Successfully fetched template examples")
             return response
         except Exception as e:
             logger.error(f"Error fetching template examples: {str(e)}")
@@ -511,16 +848,7 @@ class APIClient:
         payload: Dict[str, Any],
         progress_callback: Optional[Callable[[str], None]] = None
     ) -> Dict[str, Any]:
-        """
-        Generate a question paper with Bloom's taxonomy support.
-
-        Args:
-            payload: Paper generation request payload
-            progress_callback: Optional callback for progress updates
-
-        Returns:
-            Generated paper with validation and metrics
-        """
+        """Generate a question paper with Bloom's taxonomy support."""
         try:
             if progress_callback:
                 progress_callback("📤 Uploading configuration...")
@@ -532,51 +860,27 @@ class APIClient:
                 progress_callback=progress_callback,
             )
 
-            logger.info("Successfully generated question paper")
-            if progress_callback:
-                progress_callback("✅ Question paper generated successfully!")
-
             return response
 
         except Exception as e:
             logger.error(f"Error generating paper: {str(e)}")
-            if progress_callback:
-                progress_callback(f"❌ Error: {str(e)}")
             raise
 
     def get_validation_report(self, paper_id: str) -> Dict[str, Any]:
-        """
-        Get detailed validation report for a paper.
-
-        Args:
-            paper_id: The ID of the generated paper
-
-        Returns:
-            Dict with validation details
-        """
+        """Get detailed validation report for a paper."""
         try:
             response = self._make_request(
                 "GET",
                 f"{StreamlitConfig.API_V1_PREFIX}/papers/validation-report",
                 params={"paper_id": paper_id}
             )
-            logger.info(f"Successfully fetched validation report for paper {paper_id}")
             return response
         except Exception as e:
             logger.error(f"Error fetching validation report: {str(e)}")
             raise
 
     def parse_pdf(self, file_bytes: bytes, progress_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
-        """
-        Parse PDF file and extract text.
-
-        Args:
-            file_bytes: PDF file bytes
-            progress_callback: Optional callback for progress updates
-
-        Returns:
-            Dict with extracted text and metadata
-        """
+        """Parse PDF file and extract text."""
         try:
             if progress_callback:
                 progress_callback("📄 Parsing PDF...")
@@ -595,16 +899,7 @@ class APIClient:
             raise
 
     def parse_docx(self, file_bytes: bytes, progress_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
-        """
-        Parse DOCX file and extract text.
-
-        Args:
-            file_bytes: DOCX file bytes
-            progress_callback: Optional callback for progress updates
-
-        Returns:
-            Dict with extracted text and metadata
-        """
+        """Parse DOCX file and extract text."""
         try:
             if progress_callback:
                 progress_callback("📝 Parsing DOCX...")
@@ -622,6 +917,29 @@ class APIClient:
             logger.error(f"Error parsing DOCX: {str(e)}")
             raise
 
+    def parse_document(self, file_bytes: bytes, file_type: str, progress_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
+        """
+        Parse any supported document type and extract text.
+        
+        Args:
+            file_bytes: File bytes
+            file_type: MIME type of the file
+            progress_callback: Optional callback
+
+        Returns:
+            Dict with extracted text and metadata
+        """
+        if file_type == "application/pdf":
+            return self.parse_pdf(file_bytes, progress_callback)
+        elif file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            return self.parse_docx(file_bytes, progress_callback)
+        else:  # text/plain
+            try:
+                text = file_bytes.decode('utf-8')
+                return {"text": text, "format": "txt"}
+            except Exception as e:
+                raise Exception(f"Error parsing text file: {str(e)}")
+
     def generate_questions_from_document(
         self,
         document_text: str,
@@ -631,20 +949,7 @@ class APIClient:
         count: int,
         progress_callback: Optional[Callable[[str], None]] = None
     ) -> Dict[str, Any]:
-        """
-        Generate questions from document context.
-
-        Args:
-            document_text: Extracted document text
-            subject: Subject area
-            question_type: Type of questions
-            difficulty: Difficulty level
-            count: Number of questions
-            progress_callback: Optional callback
-
-        Returns:
-            Generated questions from document
-        """
+        """Generate questions from document context."""
         try:
             if progress_callback:
                 progress_callback("🔄 Generating questions from document...")
@@ -682,23 +987,7 @@ class APIClient:
         distribution: Dict[str, Any],
         progress_callback: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
-        """
-        Generate a question paper from document context.
-
-        Args:
-            document_text: Extracted document text
-            name: Paper name
-            course_code: Course code
-            subject: Subject area
-            total_questions: Total questions
-            total_marks: Total marks
-            duration_minutes: Duration in minutes
-            distribution: Question distribution
-            progress_callback: Optional callback
-
-        Returns:
-            Generated paper from document
-        """
+        """Generate a question paper from document context."""
         try:
             if progress_callback:
                 progress_callback("📚 Generating paper from document...")
@@ -725,69 +1014,6 @@ class APIClient:
             return response
         except Exception as e:
             logger.error(f"Error generating paper from document: {str(e)}")
-            raise
-
-    def generate_assignment_from_document(
-        self,
-        document_text: str,
-        name: str,
-        course_code: str,
-        subject: str,
-        assignment_type: str,
-        difficulty: str,
-        max_marks: int,
-        duration_days: int,
-        num_tasks: int,
-        description: str,
-        progress_callback: Optional[Callable[[str], None]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Generate an assignment from document context.
-
-        Args:
-            document_text: Extracted document text
-            name: Assignment name
-            course_code: Course code
-            subject: Subject
-            assignment_type: Type of assignment
-            difficulty: Difficulty level
-            max_marks: Max marks
-            duration_days: Duration in days
-            num_tasks: Number of tasks
-            description: Description
-            progress_callback: Optional callback
-
-        Returns:
-            Generated assignment from document
-        """
-        try:
-            if progress_callback:
-                progress_callback("📋 Generating assignment from document...")
-            
-            payload = {
-                "document_text": document_text,
-                "name": name,
-                "course_code": course_code,
-                "subject": subject,
-                "assignment_type": assignment_type,
-                "difficulty": difficulty,
-                "max_marks": max_marks,
-                "duration_days": duration_days,
-                "num_tasks": num_tasks,
-                "description": description,
-            }
-            
-            response = self._make_request(
-                "POST",
-                f"{StreamlitConfig.API_V1_PREFIX}/documents/generate-assignment",
-                json=payload,
-                progress_callback=progress_callback,
-            )
-            
-            logger.info("Successfully generated assignment from document")
-            return response
-        except Exception as e:
-            logger.error(f"Error generating assignment from document: {str(e)}")
             raise
 
     def close(self):
