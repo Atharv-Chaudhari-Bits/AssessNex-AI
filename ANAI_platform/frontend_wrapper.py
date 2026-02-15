@@ -25,7 +25,7 @@ def find_backend_port(start_port=8000, max_attempts=20):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(1)
-                result = s.connect_ex(('127.0.0.1', port))
+                result = s.connect_ex(('0.0.0.0', port))
                 if result == 0:
                     print(f"[OK] Backend detected on port {port}")
                     return port
@@ -48,7 +48,7 @@ if __name__ == "__main__":
     backend_port = find_backend_port(start_port=8000, max_attempts=20)
     
     # Get frontend port from start.bat environment variable, or find one
-    frontend_port = os.environ.get("STREAMLIT_SERVER_PORT", "8501")
+    frontend_port = os.environ.get("PORT", "8501")
     
     # Set environment variables
     os.environ["STREAMLIT_SERVER_PORT"] = frontend_port
