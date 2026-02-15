@@ -455,7 +455,7 @@ Include text descriptions explaining what the diagram shows
 
 Example format:
 flowchart TD
-    A[Start] --> B{Decision}
+    A[Start] --> B{{Decision}}
     B -->|Yes| C[Process]
     B -->|No| D[End]
     Ensure diagrams are valid Mermaid syntax that will render correctly
