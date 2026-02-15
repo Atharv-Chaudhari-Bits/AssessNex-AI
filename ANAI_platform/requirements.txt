@@ -32,3 +32,4 @@ isort==5.13.2
 pylint==3.0.3
 python-docx==0.8.11
 pypdf2
+setuptools
