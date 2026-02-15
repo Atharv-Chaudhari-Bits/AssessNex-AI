@@ -1892,7 +1892,7 @@ with tab1:
             {str(e)}
             
             **Troubleshooting:**
-            -  Ensure backend is running at http://localhost:8000
+            -  Ensure backend is running at http://0.0.0.0:8000
             -  Check backend logs for errors
             -  Try with fewer questions (1-5)
             -  Ensure context is concise

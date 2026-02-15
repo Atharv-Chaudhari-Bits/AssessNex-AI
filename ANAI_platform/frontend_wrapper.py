@@ -52,9 +52,9 @@ if __name__ == "__main__":
     
     # Set environment variables
     os.environ["STREAMLIT_SERVER_PORT"] = frontend_port
-    os.environ["STREAMLIT_SERVER_ADDRESS"] = "127.0.0.1"  # localhost only
+    os.environ["STREAMLIT_SERVER_ADDRESS"] = "0.0.0.0"  # localhost only
     os.environ["STREAMLIT_LOGGER_LEVEL"] = "info"
-    os.environ["API_BASE_URL"] = f"http://localhost:{backend_port}"
+    os.environ["API_BASE_URL"] = f"http://0.0.0.0:{backend_port}"
     
     print(f"[OK] Frontend will run on port: {frontend_port}")
     print(f"[OK] Backend API configured at: {os.environ['API_BASE_URL']}")

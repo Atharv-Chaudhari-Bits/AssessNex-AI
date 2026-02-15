@@ -13,7 +13,7 @@ class StreamlitConfig:
     """Configuration for Streamlit application."""
 
     # API Configuration
-    API_BASE_URL: str = os.getenv("API_BASE_URL", "http://localhost:8000")
+    API_BASE_URL: str = os.getenv("API_BASE_URL", "http://0.0.0.0:8000")
     API_V1_PREFIX: str = "/api/v1"
     TIMEOUT: int = 60
 

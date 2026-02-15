@@ -31,7 +31,7 @@ from datetime import datetime
 # CONFIGURATION
 # ============================================================================
 
-API_BASE = os.getenv("API_BASE", "http://localhost:8000/api/v1")
+API_BASE = os.getenv("API_BASE", "http://0.0.0.0:8000/api/v1")
 UPLOAD_FOLDER = "uploaded_documents"
 
 # Create upload folder if it doesn't exist
@@ -529,6 +529,6 @@ st.markdown("""
 <div style='text-align: center; color: gray; font-size: 0.8rem;'>
 💡 AssessNex AI - Document-Based Question Generation<br>
 Powered by Azure OpenAI & LangGraph<br>
-<a href='http://localhost:8000/docs' target='_blank'>📚 API Documentation</a>
+<a href='http://0.0.0.0:8000/docs' target='_blank'>📚 API Documentation</a>
 </div>
 """, unsafe_allow_html=True)
