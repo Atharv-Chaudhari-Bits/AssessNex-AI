@@ -2920,7 +2920,7 @@ with tab3:
         selected_index = bloom_keys.index(primary_bloom_level)
         included_levels = bloom_keys[:selected_index + 1]
         
-        st.info(f"✅ **Included Levels:** {', '.join([f'{bloom_levels[lvl]["icon"]} {lvl}' for lvl in included_levels])}")
+        st.info(f"""✅ **Included Levels:** {', '.join([f'{bloom_levels[lvl]["icon"]} {lvl}' for lvl in included_levels])}""")
     
     with col2:
         st.markdown("#### 📊 Bloom's Distribution")
