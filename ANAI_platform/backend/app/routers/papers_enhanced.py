@@ -20,7 +20,15 @@ from backend.app.schemas.bloom_taxonomy import (
     BloomLevel, QUESTION_TYPE_BLOOM_MAPPING, DOMAIN_ONTOLOGIES
 )
 from backend.app.config import get_settings
-from backend.app.agents.paper_agent_enhanced import get_paper_agent
+# Replace line 23 with:
+try:
+    from backend.app.agents.paper_agent_enhanced import get_paper_agent
+except ImportError:
+    # Fallback import
+    import sys
+    import os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    from backend.app.agents.paper_agent_enhanced import get_paper_agent
 from backend.app.utils.logger import get_logger
 from backend.app.utils.metrics import get_metrics_calculator
 from backend.app.utils.validation import get_validator
