@@ -1,3 +1,6 @@
+from backend.app.fix_imports import fix_langgraph
+fix_langgraph()
+
 """
 Backend package initialization.
 
