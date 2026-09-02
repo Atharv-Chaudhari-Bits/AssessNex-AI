@@ -22,7 +22,16 @@ import operator
 
 from langchain_openai import AzureChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+# Replace this:
 from langgraph.graph import StateGraph, END
+
+# With this:
+try:
+    from langgraph.graph import StateGraph, END
+except ImportError:
+    from langgraph.graph import StateGraph, END as EndNode
+    END = EndNode
+
 from langgraph.checkpoint.memory import MemorySaver
 
 from backend.app.config import settings
