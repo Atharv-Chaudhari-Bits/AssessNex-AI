@@ -6,17 +6,17 @@ pydantic-settings==2.12.0
 python-multipart==0.0.6
 httpx==0.28.1
 
-# LLM & AI - Updated to compatible versions
+# LLM & AI
 langchain==0.3.25
 langchain-openai==0.3.0
 langchain-core==0.3.70
 langchain-google-genai==2.1.0
 langchain-groq==0.2.0
 
-# ⭐ FIXED: LangGraph with ACTUAL available versions
+# ⭐ UPDATED: LangGraph with CURRENT available versions
 langgraph==0.0.60
 langgraph-checkpoint==2.0.0
-langgraph-sdk==0.0.6
+langgraph-sdk==0.1.0   # Changed from 0.0.6 to 0.1.0
 
 # Frontend Requirements
 streamlit==1.52.1
