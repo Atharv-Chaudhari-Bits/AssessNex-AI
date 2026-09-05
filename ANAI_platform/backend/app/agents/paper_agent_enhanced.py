@@ -20,8 +20,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 import operator
 
-from langchain_openai import AzureChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
 # Replace this:
 from langgraph.graph import StateGraph, END
 
@@ -34,7 +32,6 @@ except ImportError:
 
 from langgraph.checkpoint.memory import MemorySaver
 
-from backend.app.config import settings
 from backend.app.utils.logger import get_logger
 from backend.app.agents.question_generator import QuestionGenerationAgent
 from backend.app.schemas.bloom_taxonomy import (
@@ -46,7 +43,6 @@ from backend.app.utils.explainability import (
     get_explainability_logger, GenerationDecision, DecisionType
 )
 from backend.app.utils.metrics import get_metrics_calculator
-from pydantic import BaseModel, field_validator
 
 logger = get_logger(__name__)
 
@@ -75,7 +71,7 @@ class PaperState(TypedDict):
     total_marks: int
     duration_minutes: int
     exam_name: str
-    instructions: Optional[Union[str, List[str]]] = None
+    instructions: Optional[List[str]] = None
     diversity_seed: str
     
     # Processing state
@@ -97,15 +93,6 @@ class PaperState(TypedDict):
     paper: Optional[Dict]
     status: str
 
-    @field_validator("instructions", mode="before")
-    @classmethod
-    def normalize_instructions(cls, v):
-        if v is None:
-            return []
-        if isinstance(v, str):
-            return [v]          # 👈 STRING → LIST
-        return v
-
 class QuestionPaperAgent:
     """
     Advanced Question Paper Generation Agent.
@@ -125,14 +112,6 @@ class QuestionPaperAgent:
         self.validator = get_validator()
         self.explainability_logger = get_explainability_logger()
         self.metrics_calculator = get_metrics_calculator()
-        self.llm = AzureChatOpenAI(
-            api_key=settings.AZURE_OPENAI_API_KEY,
-            api_version=settings.AZURE_API_VERSION,
-            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
-            azure_deployment=settings.AZURE_DEPLOYMENT,
-            temperature=0.7,
-            max_tokens=2048,
-        )
         self.memory = MemorySaver()
         self.workflow = self._build_workflow()
         

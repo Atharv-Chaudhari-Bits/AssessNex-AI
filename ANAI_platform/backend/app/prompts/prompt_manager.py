@@ -477,17 +477,17 @@ Block math: wrap in double $$ symbols for complex equations
 
 Use proper LaTeX commands:
 
-Fractions: $\frac{{numerator}}{{denominator}}$
+Fractions: $\\frac{{numerator}}{{denominator}}$
 
-Summation: $\sum_{{i=1}}^{{n}} i$
+Summation: $\\sum_{{i=1}}^{{n}} i$
 
-Square root: $\sqrt{{x}}$
+Square root: $\\sqrt{{x}}$
 
-Multiplication: $\times$
+Multiplication: $\\times$
 
-Greek letters: $\alpha$, $\beta$, $\theta$
+Greek letters: $\\alpha$, $\\beta$, $\\theta$
 
-Example: "The time complexity is $O(n \log n)$"
+Example: "The time complexity is $O(n \\log n)$"
 
 Show step-by-step calculations with LaTeX for each step
 

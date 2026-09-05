@@ -1,2 +1,0 @@
-# Optional legacy Streamlit UI. Not installed by the active stack.
--r ../requirements-legacy.txt

@@ -304,7 +304,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 #                 try:
 #                     error_data = json.loads(response_body)
 #                     self.logger.error(f"  Error details: {json.dumps(error_data, indent=2)}")
-#                 except:
+#                 except Exception:
 #                     pass
 
 #         return response

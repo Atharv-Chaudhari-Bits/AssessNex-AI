@@ -5,6 +5,7 @@ Provides endpoints for checking application health and readiness.
 """
 
 from fastapi import APIRouter, HTTPException
+from datetime import datetime, timezone
 from backend.app.config import get_settings
 from backend.app.schemas import HealthCheckResponse, ErrorResponse
 from backend.app.utils import get_logger
@@ -109,8 +110,9 @@ async def llm_health_check() -> dict:
 
         return {
             "status": "available" if is_available else "unavailable",
-            "service": "Azure OpenAI",
-            "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
+            "service": "Google Gemini",
+            "model": llm_client.model,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
     except Exception as e:

@@ -32,7 +32,6 @@ from backend.app.utils import (
     parse_document_bytes,
     extract_key_sections,
 )
-import httpx
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/questions", tags=["questions"])
@@ -346,53 +345,26 @@ async def generate_customized_question_with_document(
         
         logger.info(f"Processing document upload: {file.filename}, type: {file.content_type}")
         
-        # Read file bytes
+        # Parse the uploaded document locally. Calling our own HTTP API here added
+        # unnecessary latency and depended on a non-existent API_BASE_URL setting.
         file_bytes = await file.read()
-        
-        # Determine which parsing endpoint to call
-        document_text = None
-        base_url = str(get_settings().API_BASE_URL).rstrip('/')
-        
+        filename = (file.filename or "").lower()
+        content_type = file.content_type or ""
+        if filename.endswith(".pdf") or content_type == "application/pdf":
+            file_type = "application/pdf"
+        elif filename.endswith(".docx") or content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            file_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif filename.endswith((".txt", ".md", ".csv")) or content_type in {"text/plain", "text/markdown", "text/csv"}:
+            file_type = "text/plain" if content_type not in {"text/markdown", "text/csv"} else content_type
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported file type. Use PDF, DOCX, TXT, Markdown, or CSV.")
+
         try:
-            async with httpx.AsyncClient() as client:
-                if file.content_type == "application/pdf" or file.filename.lower().endswith('.pdf'):
-                    # Call the parse-pdf endpoint
-                    logger.info("Calling PDF parse endpoint")
-                    files = {"file": (file.filename, file_bytes, file.content_type)}
-                    response = await client.post(
-                        f"{base_url}/api/v1/documents/parse-pdf",
-                        files=files
-                    )
-                    if response.status_code == 200:
-                        result = response.json()
-                        document_text = result.get("text")
-                        logger.info(f"PDF parsed: {len(document_text)} characters")
-                
-                elif file.content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or file.filename.lower().endswith('.docx'):
-                    # Call the parse-docx endpoint
-                    logger.info("Calling DOCX parse endpoint")
-                    files = {"file": (file.filename, file_bytes, file.content_type)}
-                    response = await client.post(
-                        f"{base_url}/api/v1/documents/parse-docx",
-                        files=files
-                    )
-                    if response.status_code == 200:
-                        result = response.json()
-                        document_text = result.get("text")
-                        logger.info(f"DOCX parsed: {len(document_text)} characters")
-                
-                else:
-                    # For text files, decode directly
-                    try:
-                        document_text = file_bytes.decode('utf-8')
-                        logger.info(f"Text file read directly: {len(document_text)} characters")
-                    except:
-                        raise HTTPException(status_code=400, detail="Unsupported file type or encoding")
-        
-        except Exception as e:
-            logger.error(f"Document parsing failed: {str(e)}")
-            raise HTTPException(status_code=400, detail=f"Failed to parse document: {str(e)}")
-        
+            document_text = parse_document_bytes(file_bytes, file_type)
+        except Exception as exc:
+            logger.error("Document parsing failed: %s", exc)
+            raise HTTPException(status_code=400, detail=f"Failed to parse document: {exc}") from exc
+
         if not document_text:
             raise HTTPException(status_code=400, detail="No text could be extracted from document")
         

@@ -6,10 +6,9 @@ backend API for type validation and documentation.
 """
 
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from enum import Enum
-from typing import List, Dict, Optional, Union
-from pydantic import BaseModel, Field, validator
+from typing import Union
 
 class DifficultyLevel(str, Enum):
     """Enumeration for question difficulty levels."""
@@ -90,7 +89,7 @@ class QuestionGenerationRequest(BaseModel):
         description="Format for diagrams: 'Mermaid.js (Interactive Flowcharts)' or 'ASCII Art (Text-based Diagrams)'"
     )
 
-    @validator("num_questions")
+    @field_validator("num_questions")
     def validate_num_questions(cls, value: int) -> int:
         """
         Validate the number of questions.
@@ -132,7 +131,7 @@ class CustomizedQuestionRequest(BaseModel):
     additional_context: Optional[str] = Field(None, description="Additional context")
     require_bloom_justification: bool = Field(True, description="Whether to include Bloom's justification")
     
-    @validator('topic')
+    @field_validator('topic')
     def validate_topic(cls, v):
         if not v or not v.strip():
             raise ValueError("topic cannot be empty")
@@ -240,7 +239,7 @@ class Question(BaseModel):
         """Pydantic config for lenient parsing."""
         arbitrary_types_allowed = True
         
-    @validator("options", pre=True, always=True)
+    @field_validator("options", mode="before")
     def validate_options(cls, value):
         """Validate and fix options field."""
         if value is None:
@@ -534,7 +533,7 @@ class PaperGenerationRequest(BaseModel):
     )
     
     # 🔥 NORMALIZE TO LIST[str]
-    @validator("instructions", pre=True)
+    @field_validator("instructions", mode="before")
     def normalize_instructions(cls, v):
         if v is None:
             return []

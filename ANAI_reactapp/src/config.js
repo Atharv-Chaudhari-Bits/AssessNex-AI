@@ -1,39 +1,34 @@
-// Centralized configuration for API endpoints and mock data
-export const API_BASE = import.meta.env.VITE_API_BASE || '/api'
+/** Central frontend configuration. */
+
+export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000/api/v1'
+export const ENABLE_MOCK_AUTH = import.meta.env.VITE_ENABLE_MOCK_AUTH === 'true'
 
 export const ENDPOINTS = {
-  auth: {
-    login: `${API_BASE}/auth/login`,
-    register: `${API_BASE}/auth/register`,
-    me: `${API_BASE}/user/me`
+  questions: {
+    generate: `${API_BASE}/questions/generate`,
+    customized: `${API_BASE}/questions/customized`,
+    subjects: `${API_BASE}/questions/subjects`,
+    info: `${API_BASE}/questions/info`
   },
-  upload: `${API_BASE}/upload`,
-  parse: `${API_BASE}/parse`,
-  generate: `${API_BASE}/generate`,
-  questions: `${API_BASE}/questions`,
-  saveExam: `${API_BASE}/save-exam`,
-  studentQuestions: `${API_BASE}/student/questions`,
-  sendEmail: `${API_BASE}/send-email`
+  documents: {
+    parsePdf: `${API_BASE}/documents/parse-pdf`,
+    parseDocx: `${API_BASE}/documents/parse-docx`,
+    generateQuestions: `${API_BASE}/documents/generate-questions`,
+    summarize: `${API_BASE}/documents/summarize`,
+    extractConcepts: `${API_BASE}/documents/extract-concepts`
+  },
+  papers: `${API_BASE}/papers/generate`,
+  assignments: `${API_BASE}/documents/assignments/generate`
 }
 
-export const MOCK = {
-  homepage: 'https://Atharv-Chaudhari.github.io/AssessNex-AI',
-  defaultRoles: ['Professor','Assistant','Student']
-}
-
-export function makeMockUser(role = 'Student', email, name){
-  const displayName = name ? name : (role === 'Professor' ? 'Dr. Priya Rao' : role === 'Assistant' ? 'Kiran Sharma' : 'Aarav Patel')
+export function makeMockUser(role = 'Student', email = '', name = '') {
+  const displayName = name || (role === 'Professor' ? 'Demo Professor' : role === 'Assistant' ? 'Demo Assistant' : 'Demo Student')
   return {
-    id: Math.floor(Math.random()*9000)+1000,
+    id: `demo-${role.toLowerCase()}`,
     name: displayName,
     email: email || `${role.toLowerCase()}@example.com`,
     role
   }
 }
 
-export default {
-  API_BASE,
-  ENDPOINTS,
-  MOCK,
-  makeMockUser
-}
+export default { API_BASE, ENABLE_MOCK_AUTH, ENDPOINTS, makeMockUser }

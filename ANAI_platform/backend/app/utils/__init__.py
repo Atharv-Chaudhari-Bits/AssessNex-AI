@@ -65,10 +65,10 @@ try:
 except ImportError:
     # Document parser not available - define placeholder functions
     def parse_document_bytes(*args, **kwargs):
-        raise ImportError("Document parser not available. Install PyPDF2 and python-docx.")
+        raise ImportError("Document parser not available. Install pypdf and python-docx.")
     
     def extract_key_sections(*args, **kwargs):
-        raise ImportError("Document parser not available. Install PyPDF2 and python-docx.")
+        raise ImportError("Document parser not available. Install pypdf and python-docx.")
     
     DOCUMENT_PARSER_AVAILABLE = False
 

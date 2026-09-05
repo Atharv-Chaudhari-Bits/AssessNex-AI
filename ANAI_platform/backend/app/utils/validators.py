@@ -30,7 +30,7 @@ def validate_subject(subject: str) -> bool:
     try:
         settings = get_settings()
         valid_subjects = settings.SUBJECTS
-    except:
+    except Exception:
         # Fallback to a reasonable default if settings not available
         valid_subjects = ["Machine Learning", "Deep Learning", "Natural Language Processing", 
                           "Computer Vision", "Artificial Intelligence", "Reinforcement Learning",
@@ -79,7 +79,7 @@ def validate_question_type(question_type: str) -> bool:
     try:
         settings = get_settings()
         valid_types = settings.QUESTION_TYPES
-    except:
+    except Exception:
         valid_types = VALID_QUESTION_TYPES  # Use the updated list
     
     # Check exact match
@@ -112,8 +112,8 @@ def validate_difficulty_level(difficulty: str) -> bool:
     """
     try:
         settings = get_settings()
-        valid_levels = settings.DIFFICULTY_LEV_ELS
-    except:
+        valid_levels = settings.DIFFICULTY_LEVELS
+    except Exception:
         valid_levels = ["Easy", "Medium", "Hard", "Very Hard", "Expert"]
     
     # Check exact match
@@ -171,7 +171,7 @@ def validate_num_questions(num_questions: int, min_val: int = 1, max_val: int = 
     try:
         settings = get_settings()
         max_allowed = settings.MAX_QUESTIONS_COUNT
-    except:
+    except Exception:
         max_allowed = max_val
     
     if not isinstance(num_questions, int):
@@ -221,7 +221,7 @@ def sanitize_input(text: str, max_length: int = 5000) -> Optional[str]:
     if not isinstance(text, str):
         try:
             text = str(text)
-        except:
+        except Exception:
             logger.warning(f"Could not convert input to string: {type(text)}")
             return None
 

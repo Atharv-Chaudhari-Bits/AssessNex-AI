@@ -37,6 +37,9 @@ def find_backend_port(start_port=8000, max_attempts=20):
     return start_port
 
 if __name__ == "__main__":
+    from backend.app.config import get_settings
+    if not get_settings().ENABLE_LEGACY_STREAMLIT_FRONTEND:
+        raise SystemExit("Legacy Streamlit frontend is disabled. Set ENABLE_LEGACY_STREAMLIT_FRONTEND=true to enable it.")
     # Get the directory of this script
     script_dir = os.path.dirname(os.path.abspath(__file__))
     

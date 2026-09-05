@@ -2,7 +2,7 @@
 Agent module for question generation.
 
 This module implements the agentic AI logic for generating MTech level
-questions using Azure OpenAI and structured prompting.
+questions using Google Gemini and structured prompting.
 """
 
 import json
@@ -25,7 +25,7 @@ class QuestionGenerationAgent:
     """
     Agent for generating MTech level questions.
 
-    This agent uses Azure OpenAI to generate high-quality, structured
+    This agent uses Google Gemini to generate high-quality, structured
     questions for various AI/ML subjects.
     """
 

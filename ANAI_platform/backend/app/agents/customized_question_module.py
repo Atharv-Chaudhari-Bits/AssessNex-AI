@@ -2,7 +2,7 @@
 Customized Question Generation Module.
 
 This module implements the agentic AI logic for generating MTech level
-questions calibrated to specific Bloom's taxonomy levels using Azure OpenAI
+questions calibrated to specific Bloom's taxonomy levels using Google Gemini
 and structured prompting.
 """
 
@@ -25,7 +25,7 @@ class CustomizedQuestionAgent:
     """
     Agent for generating MTech level questions calibrated to Bloom's taxonomy levels.
 
-    This agent uses Azure OpenAI to generate high-quality, structured
+    This agent uses Google Gemini to generate high-quality, structured
     questions for various AI/ML subjects based on specific Bloom's taxonomy
     levels chosen by the user.
     """
