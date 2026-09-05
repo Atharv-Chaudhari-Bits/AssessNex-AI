@@ -19,6 +19,9 @@ langgraph-checkpoint==4.2.0
 # Document processing
 pypdf==6.17.0
 python-docx==1.2.0
+sympy==1.14.0
+reportlab==4.4.9
+matplotlib==3.10.6
 
 # Test tooling
 pytest==7.4.4

@@ -15,7 +15,7 @@ import json
 import random
 import hashlib
 from datetime import datetime
-from typing import Dict, List, Any, Optional, TypedDict, Annotated, Union
+from typing import Dict, List, Any, Optional, TypedDict, Annotated, Union, Callable, Awaitable
 from dataclasses import dataclass, field
 from enum import Enum
 import operator
@@ -35,6 +35,8 @@ from backend.app.utils.explainability import (
     get_explainability_logger, GenerationDecision, DecisionType
 )
 from backend.app.utils.metrics import get_metrics_calculator
+from backend.app.utils.quality import evaluate_paper
+from backend.app.config import get_settings
 
 logger = get_logger(__name__)
 
@@ -80,6 +82,7 @@ class PaperState(TypedDict):
     # Validation and metrics
     validation_results: List[Dict]
     metrics_results: Dict
+    quality_results: Dict
     
     # Output
     paper: Optional[Dict]
@@ -164,6 +167,7 @@ class QuestionPaperAgent:
         workflow.add_node("validate_questions", self._validate_questions_node)
         workflow.add_node("generate_answer_key", self._generate_answer_key_node)
         workflow.add_node("evaluate_metrics", self._evaluate_metrics_node)
+        workflow.add_node("quality_gate", self._quality_gate_node)
         workflow.add_node("finalize", self._finalize_node)
         
         workflow.set_entry_point("initialize")
@@ -184,7 +188,8 @@ class QuestionPaperAgent:
         
         workflow.add_edge("validate_questions", "generate_answer_key")
         workflow.add_edge("generate_answer_key", "evaluate_metrics")
-        workflow.add_edge("evaluate_metrics", "finalize")
+        workflow.add_edge("evaluate_metrics", "quality_gate")
+        workflow.add_edge("quality_gate", "finalize")
         workflow.add_edge("finalize", END)
         
         return workflow.compile(checkpointer=self.memory)
@@ -495,15 +500,48 @@ class QuestionPaperAgent:
             "messages": [{"role": "assistant", "content": "Paper metrics evaluated"}]
         }
 
+    async def _quality_gate_node(self, state: PaperState) -> Dict:
+        """Run deterministic quality, duplicate and math checks after AI generation."""
+        if not get_settings().ENABLE_QUALITY_CHECK:
+            return {"current_step": "quality_gate_skipped", "messages": [{"role": "assistant", "content": "Quality gate disabled by configuration"}]}
+        report = evaluate_paper(state.get("sections", []))
+        logger.info("Quality gate: %.1f/100, passed=%s, issues=%s", report["overall_score"], report["passed"], report["issues_count"])
+        return {
+            "quality_results": report,
+            "current_step": "quality_gate_complete",
+            "messages": [{"role": "assistant", "content": f"Quality gate complete: {report['overall_score']}/100"}],
+        }
+
     async def _finalize_node(self, state: PaperState) -> Dict:
         """Finalize the question paper"""
         logger.info("Finalizing question paper")
         
         # Construct final paper
+        header = state.get("header_info", {})
+        answer_key = header.get("answer_key", [])
+        sections = state.get("sections", [])
+        blueprint = {
+            "total_marks": state.get("total_marks", 0),
+            "duration_minutes": state.get("duration_minutes", 0),
+            "difficulty_distribution": state.get("difficulty_distribution", {}),
+            "bloom_distribution": state.get("bloom_distribution", {}),
+            "sections": [
+                {
+                    "section_id": sec.get("section_id"),
+                    "title": sec.get("title"),
+                    "question_type": sec.get("question_type"),
+                    "questions": len(sec.get("questions", [])),
+                    "marks": sum(q.get("marks", 0) for q in sec.get("questions", [])),
+                } for sec in sections
+            ],
+        }
         paper = {
             "paper_id": f"paper_{datetime.utcnow().isoformat()}",
-            "header": state.get("header_info", {}),
-            "sections": state.get("sections", []),
+            "header": header,
+            "answer_key": answer_key,
+            "blueprint": blueprint,
+            "sections": sections,
+            "quality_results": state.get("quality_results", {}),
             "validation_summary": {
                 "total_validations": len(state.get("validation_results", [])),
                 "metrics": state.get("metrics_results", {})
@@ -630,7 +668,8 @@ class QuestionPaperAgent:
         bloom_distribution: Optional[Dict[str, int]] = None,
         exam_name: Optional[str] = None,
         subtopics: Optional[List[str]] = None,
-        instructions: Optional[List[str]] = None
+        instructions: Optional[List[str]] = None,
+        progress_callback: Optional[Callable[[str, int], Awaitable[None]]] = None,
     ) -> Dict:
         """
         Generate a complete question paper with advanced features.
@@ -696,6 +735,7 @@ class QuestionPaperAgent:
             "header_info": {},
             "validation_results": [],
             "metrics_results": {},
+            "quality_results": {},
             "paper": None,
             "status": "pending"
         }
@@ -705,10 +745,39 @@ class QuestionPaperAgent:
         config = {"configurable": {"thread_id": thread_id}}
         
         try:
-            # Run workflow
-            final_state = await self.workflow.ainvoke(initial_state, config)
-            
-            if final_state.get("paper"):
+            if progress_callback:
+                await progress_callback("Preparing the exam blueprint", 8)
+
+            final_state = None
+            # Stream node updates so a background job can report real generation stages.
+            async for update in self.workflow.astream(initial_state, config, stream_mode="updates"):
+                if progress_callback:
+                    node_names = list(update.keys()) if isinstance(update, dict) else []
+                    node = node_names[-1] if node_names else "working"
+                    stage_map = {
+                        "initialize": (12, "Preparing the exam blueprint"),
+                        "generate_header": (18, "Preparing paper header and instructions"),
+                        "plan_sections": (25, "Planning sections, marks and Bloom levels"),
+                        "generate_section": (60, "Generating questions with Gemini"),
+                        "validate_questions": (78, "Checking question quality and consistency"),
+                        "generate_answer_key": (88, "Building answer key and marking scheme"),
+                        "evaluate_metrics": (91, "Evaluating paper quality and balance"),
+                        "quality_gate": (95, "Running final quality and math checks"),
+                        "finalize": (98, "Finalizing the question paper"),
+                    }
+                    percent, message = stage_map.get(node, (50, "Generating the question paper"))
+                    await progress_callback(message, percent)
+                # LangGraph update chunks contain partial state; the final state is available
+                # through the last update by using the graph's state history is unnecessary here.
+                # Re-run a lightweight invoke is intentionally avoided; instead collect state.
+                if isinstance(update, dict):
+                    if final_state is None:
+                        final_state = dict(initial_state)
+                    for payload in update.values():
+                        if isinstance(payload, dict):
+                            final_state.update(payload)
+
+            if final_state and final_state.get("paper"):
                 logger.info(f"Paper generated: {final_state['paper'].get('paper_id')}")
                 return final_state["paper"]
             else:

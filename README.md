@@ -148,3 +148,36 @@ http://127.0.0.1:8000
 ```
 
 No `.env` file is required on Render. Put Gemini and application environment variables in Render's Environment settings.
+
+## Recent UX upgrades
+
+- **Question papers now include an answer key and marking scheme** for instructor use.
+- **Paper generation now reports progress** (blueprint → Gemini generation → validation → answer key → finalization) instead of appearing idle.
+- **Math rendering is more robust** with normalized LaTeX delimiters and safer handling of escaped commands.
+- **Educational graphs can be generated end-to-end**: Gemini emits a small structured graph specification and the backend renders a clean PNG locally, avoiding a separate image API and keeping results deterministic.
+
+## Production feature controls
+
+The production behavior is intentionally environment-driven. You can change the Gemini model and assessment features in Render without editing code:
+
+```text
+GOOGLE_MODEL=gemini-2.5-flash
+GOOGLE_FALLBACK_MODEL=
+ENABLE_QUALITY_CHECK=true
+ENABLE_MATH_VALIDATION=true
+ENABLE_VISUAL_GENERATION=true
+ENABLE_PAPER_EXPORTS=true
+ENABLE_QUESTION_BANK=true
+ENABLE_MULTI_VERSION_PAPERS=true
+PAPER_QUALITY_THRESHOLD=85
+PAPER_MAX_VERSIONS=4
+PAPER_JOB_TTL_SECONDS=3600
+PAPER_POLL_INTERVAL_SECONDS=1.0
+QUESTION_BANK_DB_PATH=data/question_bank.sqlite3
+VISUAL_RENDER_DPI=150
+VISUAL_MAX_POINTS=1000
+```
+
+### Assessment workflow
+
+Question-paper generation now supports real progress updates, answer keys, marking schemes, a paper blueprint, deterministic quality checks, math sanity checks, reproducible graph rendering, professional PDF/DOCX export, multi-version paper generation, and a SQLite-backed question bank. The Gemini model remains configurable through `GOOGLE_MODEL`; an optional `GOOGLE_FALLBACK_MODEL` is used only if the primary model fails.

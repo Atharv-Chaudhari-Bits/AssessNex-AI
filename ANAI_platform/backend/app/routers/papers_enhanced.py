@@ -6,9 +6,12 @@ validation, and metrics evaluation.
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import Optional, List
+from fastapi.responses import Response
+from typing import Optional, List, Dict, Any
 import json
 import asyncio
+import uuid
+from datetime import datetime, timezone
 from backend.app.schemas import (
     PaperGenerationRequest,
     PaperGenerationResponse,
@@ -24,9 +27,60 @@ from backend.app.agents.paper_agent_enhanced import get_paper_agent
 from backend.app.utils.logger import get_logger
 from backend.app.utils.metrics import get_metrics_calculator
 from backend.app.utils.validation import get_validator
+from backend.app.utils.question_bank import save_question, search_questions
+from backend.app.utils.paper_exports import build_pdf, build_docx, paper_text
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/papers", tags=["papers"])
+
+# In-process job store is appropriate for the single Render Web Service + Honcho setup.
+# Jobs are short-lived and the generated result is returned to the requesting browser.
+_PAPER_JOBS = {}
+
+
+def _job_update(job_id: str, **values):
+    job = _PAPER_JOBS.get(job_id)
+    if job is not None:
+        job.update(values)
+        job["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+
+async def _run_paper_job(job_id: str, request: PaperGenerationRequest):
+    try:
+        _job_update(job_id, status="running", progress=5, message="Preparing the exam blueprint")
+        paper_agent = get_paper_agent()
+
+        async def progress(message: str, percent: int):
+            _job_update(job_id, status="running", progress=max(0, min(99, percent)), message=message)
+
+        paper = await paper_agent.generate_paper(
+            subject=request.subject,
+            topic=request.topic,
+            total_marks=request.total_marks,
+            duration_minutes=request.duration_minutes,
+            question_type_config=[config.dict() for config in request.question_type_config],
+            difficulty_distribution=request.difficulty_distribution,
+            bloom_distribution=request.bloom_distribution,
+            exam_name=request.exam_name,
+            subtopics=request.subtopics,
+            instructions=request.instructions,
+            progress_callback=progress,
+        )
+
+        if "error" in paper:
+            raise RuntimeError(paper["error"])
+
+        _job_update(
+            job_id,
+            status="completed",
+            progress=100,
+            message="Question paper and answer key are ready",
+            result={"status": "success", "message": "Paper generated", "paper": paper},
+        )
+    except Exception as exc:
+        logger.exception("Paper background job %s failed", job_id)
+        _job_update(job_id, status="failed", progress=100, message=str(exc), error=str(exc))
+
 
 
 @router.get(
@@ -155,6 +209,36 @@ async def get_domain_ontologies(
     except Exception as e:
         logger.error(f"Error fetching domain ontologies: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch domain ontologies")
+
+
+@router.post("/generate/async", response_model=dict, summary="Start background question paper generation")
+async def start_paper_generation(request: PaperGenerationRequest) -> dict:
+    if not get_settings().ENABLE_QUESTION_PAPER_GENERATION:
+        raise HTTPException(status_code=503, detail="Question paper generation is disabled")
+
+    for config in request.question_type_config:
+        if config.type not in QUESTION_TYPE_BLOOM_MAPPING:
+            raise HTTPException(status_code=400, detail=f"Unknown question type: {config.type}")
+
+    job_id = uuid.uuid4().hex
+    _PAPER_JOBS[job_id] = {
+        "job_id": job_id,
+        "status": "queued",
+        "progress": 0,
+        "message": "Queued for generation",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    asyncio.create_task(_run_paper_job(job_id, request))
+    return {"status": "accepted", "job_id": job_id, "message": "Paper generation started"}
+
+
+@router.get("/jobs/{job_id}", response_model=dict, summary="Get question paper generation progress")
+async def get_paper_job(job_id: str) -> dict:
+    job = _PAPER_JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Paper generation job not found or expired")
+    return job
 
 
 @router.post(
@@ -445,3 +529,55 @@ async def get_validation_report(
     except Exception as e:
         logger.error(f"Error retrieving validation report: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to retrieve validation report")
+
+
+@router.post("/versions", response_model=dict, summary="Generate equivalent paper versions")
+async def generate_paper_versions(request: PaperGenerationRequest, versions: int = Query(2, ge=2, le=4)) -> dict:
+    settings = get_settings()
+    if not settings.ENABLE_MULTI_VERSION_PAPERS:
+        raise HTTPException(status_code=503, detail="Multi-version papers are disabled")
+    versions = min(versions, settings.PAPER_MAX_VERSIONS)
+    results = []
+    for index in range(versions):
+        variant = request.model_copy(deep=True)
+        variant.exam_name = f"{request.exam_name or 'Question Paper'} - Set {chr(65 + index)}"
+        variant.instructions = list(request.instructions or []) + [f"Version {chr(65 + index)}"]
+        paper_agent = get_paper_agent()
+        paper = await paper_agent.generate_paper(
+            subject=variant.subject, topic=variant.topic, total_marks=variant.total_marks,
+            duration_minutes=variant.duration_minutes,
+            question_type_config=[c.model_dump() for c in variant.question_type_config],
+            difficulty_distribution=variant.difficulty_distribution, bloom_distribution=variant.bloom_distribution,
+            exam_name=variant.exam_name, subtopics=variant.subtopics, instructions=variant.instructions,
+        )
+        results.append(paper)
+    return {"status": "success", "versions": results}
+
+
+@router.post("/export", summary="Export a generated paper")
+async def export_paper(paper: Dict[str, Any], format: str = Query("pdf"), include_answers: bool = Query(False)):
+    settings = get_settings()
+    if not settings.ENABLE_PAPER_EXPORTS:
+        raise HTTPException(status_code=503, detail="Paper exports are disabled")
+    fmt = format.lower()
+    if fmt == "pdf":
+        return Response(build_pdf(paper, include_answers), media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=assessnex-paper.pdf"})
+    if fmt == "docx":
+        return Response(build_docx(paper, include_answers), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": "attachment; filename=assessnex-paper.docx"})
+    if fmt == "txt":
+        return Response(paper_text(paper, include_answers), media_type="text/plain", headers={"Content-Disposition": "attachment; filename=assessnex-paper.txt"})
+    raise HTTPException(status_code=400, detail="Supported export formats: pdf, docx, txt")
+
+
+@router.post("/question-bank/save", summary="Save a question to the question bank")
+async def save_question_to_bank(question: Dict[str, Any], topic: str = ""):
+    if not get_settings().ENABLE_QUESTION_BANK:
+        raise HTTPException(status_code=503, detail="Question bank is disabled")
+    return save_question(question, topic)
+
+
+@router.get("/question-bank/search", summary="Search saved questions")
+async def search_question_bank(q: Optional[str] = None, subject: Optional[str] = None, difficulty: Optional[str] = None, limit: int = Query(50, ge=1, le=200)):
+    if not get_settings().ENABLE_QUESTION_BANK:
+        raise HTTPException(status_code=503, detail="Question bank is disabled")
+    return {"status": "success", "questions": search_questions(q=q, subject=subject, difficulty=difficulty, limit=limit)}

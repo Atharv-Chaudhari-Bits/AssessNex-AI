@@ -528,8 +528,11 @@ def render_text_with_math(text: str):
     if not text:
         return
     
-    # Fix escaped backslashes in LaTeX (e.g., \\text -> \text)
-    # This can happen during JSON serialization
+    # Normalize alternate LaTeX delimiters emitted by models.
+    text = text.replace("\\[", "$$").replace("\\]", "$$")
+    text = text.replace("\\(", "$").replace("\\)", "$")
+
+    # Fix escaped backslashes in LaTeX.
     text = text.replace('\\\\', '\\')
     
     # Fix corrupted LaTeX commands (e.g., TAB+imes -> \times)
@@ -1365,6 +1368,16 @@ def display_question(question: dict, index: int):
         # Render question text with formatting support
         question_text = question.get('question_text', 'N/A')
         render_content_with_formatting(question_text, q_type)
+
+        visual = question.get("visual")
+        if isinstance(visual, dict) and visual.get("image_base64"):
+            try:
+                import base64 as _base64
+                image_bytes = _base64.b64decode(visual["image_base64"])
+                st.image(image_bytes, caption=visual.get("title", "Generated visual"), use_container_width=True)
+            except Exception as exc:
+                logger.warning("Could not render generated visual: %s", exc)
+                st.warning("The visual could not be displayed, but the question text is still available.")
         st.write("")
         
         # Options with improved styling
@@ -2069,12 +2082,23 @@ with tab2:
                     "instructions": paper_instructions
                 }
 
-                response = client.generate_paper_with_payload(payload)
+                progress_bar = st.progress(0)
+                status_box = st.empty()
+                status_box.info("⏳ Starting paper generation…")
+
+                def update_paper_progress(message, progress):
+                    progress_bar.progress(max(0, min(100, int(progress))))
+                    status_box.info(f"🧠 {message}")
+
+                response = client.generate_paper_with_payload(
+                    payload,
+                    progress_callback=update_paper_progress,
+                )
 
                 paper_data = response.get("paper", response)
                 st.session_state.generated_paper = paper_data
-
-                st.success("✅ Paper generated successfully!")
+                progress_bar.progress(100)
+                status_box.success("✅ Question paper, answer key and quality checks are ready.")
                 st.balloons()
 
             except Exception as e:
@@ -2282,14 +2306,15 @@ with tab2:
                         "id": question.get("id", f"q_{total_questions}"),
                         "question_number": total_questions,
                         "question": question_text,
-                        "type": question.get("type", question_type),
+                        "type": question.get("type", question.get("question_type", question_type)),
                         "options": options,
                         "answer": answer,
                         "marks": question.get("marks", section.get("marks_per_question", 2)),
-                        "difficulty": question.get("difficulty", "medium"),
+                        "difficulty": question.get("difficulty", question.get("difficulty_level", "medium")),
                         "bloom_level": question.get("bloom_level", "Apply"),
                         "explanation": question.get("explanation", ""),
                         "topic": question.get("topic", paper.get("topic", "")),
+                        "visual": question.get("visual"),
                         "_original_data": {k: v for k, v in question.items() if k not in ["question", "options", "answer"]}
                     }
                     
@@ -2305,6 +2330,8 @@ with tab2:
                 "total_marks": paper.get("total_marks", total_marks),
                 "duration_minutes": paper.get("duration_minutes", paper_duration),
                 "instructions": paper.get("instructions", paper.get("header", {}).get("instructions", [])),
+                "answer_key": paper.get("answer_key", paper.get("header", {}).get("answer_key", [])),
+                "quality_results": paper.get("quality_results", {}),
                 "sections": transformed_sections,
                 "_metadata": {
                     "total_questions": total_questions,
@@ -2413,9 +2440,17 @@ with tab2:
                     st.info(f"No questions in {section_title}")
                 else:
                     for q in questions:
-                        # Display question
-                        st.markdown(f'<div class="question-text">Q{q["question_number"]}. {q["question"]}</div>', 
-                                unsafe_allow_html=True)
+                        # Display question with the same robust math/diagram renderer used elsewhere.
+                        st.markdown(f'<div class="question-text">Q{q["question_number"]}.</div>', unsafe_allow_html=True)
+                        render_content_with_formatting(q.get("question", ""), q.get("type", section.get("question_type", "")))
+
+                        visual = q.get("visual")
+                        if isinstance(visual, dict) and visual.get("image_base64"):
+                            try:
+                                import base64 as _base64
+                                st.image(_base64.b64decode(visual["image_base64"]), caption=visual.get("title", "Generated graph"), use_container_width=True)
+                            except Exception as exc:
+                                logger.warning("Could not display paper visual: %s", exc)
                         
                         # Display options for MCQ/TrueFalse
                         if q["type"] in ["Multiple Choice", "True/False"] and q.get("options"):
@@ -2465,6 +2500,26 @@ with tab2:
                         
                         st.markdown('<div class="question-divider"></div>', unsafe_allow_html=True)
         
+        # Teacher-facing answer key
+        answer_key = paper.get("answer_key", [])
+        if answer_key:
+            st.divider()
+            st.markdown("## 🔑 Answer Key & Marking Scheme")
+            st.caption("This section is kept separate from the student-facing paper so it can be shared only with instructors.")
+            for answer_section in answer_key:
+                st.markdown(f"### {answer_section.get('section_title', answer_section.get('section_id', 'Section'))}")
+                for answer in answer_section.get("answers", []):
+                    qnum = answer.get("question_number", "?")
+                    marks = answer.get("marks", "")
+                    st.markdown(f"**Q{qnum}** · {marks} marks")
+                    render_content_with_formatting(str(answer.get("answer", "")), "Long Answer")
+                    if answer.get("marking_scheme"):
+                        with st.expander(f"Marking scheme — Q{qnum}"):
+                            render_content_with_formatting(str(answer["marking_scheme"]), "Long Answer")
+                    if answer.get("explanation"):
+                        with st.expander(f"Explanation — Q{qnum}"):
+                            render_content_with_formatting(str(answer["explanation"]), "Long Answer")
+
         # Summary statistics
         st.divider()
         st.markdown("### 📊 Paper Summary")
@@ -2558,6 +2613,17 @@ with tab2:
                 export_content += "]\n\n"
         
         export_content += "\n" + "=" * 60 + "\n"
+        export_content += "ANSWER KEY\n"
+        export_content += "-" * 50 + "\n"
+        for answer_section in paper.get("answer_key", []):
+            export_content += f"{answer_section.get('section_title', answer_section.get('section_id', 'SECTION'))}\n"
+            for answer in answer_section.get("answers", []):
+                export_content += f"Q{answer.get('question_number', '?')}. {answer.get('answer', '')} [Marks: {answer.get('marks', 'N/A')}]\n"
+                if answer.get('marking_scheme'):
+                    export_content += f"Marking scheme: {answer.get('marking_scheme')}\n"
+                if answer.get('explanation'):
+                    export_content += f"Explanation: {answer.get('explanation')}\n"
+            export_content += "\n"
         export_content += f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         export_content += "=" * 60
         
@@ -2583,18 +2649,55 @@ with tab2:
                 st.text_area("Paper Content", export_content, height=200, key="export_textarea")
         
         with col3:
-            # PDF Export (simplified)
-            if st.button("🖨️ Generate PDF Preview", use_container_width=True):
-                st.info("PDF generation would require additional setup.")
-                st.markdown("""
-                **For PDF export, you would need:**
-                1. Install `reportlab` or `fpdf`
-                2. Create a PDF generation function
-                3. Format content with proper styling
-                
-                Currently exporting as text file.
-                """)
-        
+            try:
+                client = st.session_state.api_client
+                pdf_bytes = client.export_paper(paper, "pdf", include_answers=False)
+                st.download_button("🖨️ Student PDF", data=pdf_bytes, file_name=f"{paper.get('exam_name','paper').replace(' ','_')}_student.pdf", mime="application/pdf", use_container_width=True)
+                teacher_pdf = client.export_paper(paper, "pdf", include_answers=True)
+                st.download_button("🔑 Teacher PDF", data=teacher_pdf, file_name=f"{paper.get('exam_name','paper').replace(' ','_')}_teacher.pdf", mime="application/pdf", use_container_width=True)
+                docx_bytes = client.export_paper(paper, "docx", include_answers=False)
+                st.download_button("📝 Editable DOCX", data=docx_bytes, file_name=f"{paper.get('exam_name','paper').replace(' ','_')}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+            except Exception as exc:
+                st.warning(f"Professional export unavailable: {exc}")
+
+        # ==================== QUALITY GATE ====================
+        quality = paper.get("quality_results", {})
+        if quality:
+            st.divider()
+            score = quality.get("overall_score", 0)
+            st.markdown("### 🛡️ AI Quality Gate")
+            st.metric("Paper quality score", f"{score}/100")
+            if quality.get("passed"):
+                st.success("Quality checks passed. Review the flagged items below before publishing.")
+            else:
+                st.warning(f"Quality gate found {quality.get('issues_count', 0)} issue(s). Review before publishing.")
+            reports = quality.get("question_reports", [])
+            flagged = [(i + 1, r) for i, r in enumerate(reports) if r.get("issues")]
+            if flagged:
+                with st.expander("Review flagged questions", expanded=False):
+                    for qnum, report in flagged:
+                        st.markdown(f"**Question {qnum} — {report.get('score', 0)}/100**")
+                        for issue in report.get("issues", []):
+                            st.write(f"• {issue}")
+
+        # ==================== QUESTION BANK ====================
+        if st.session_state.get("api_client"):
+            with st.expander("📚 Save generated questions to Question Bank"):
+                st.caption("Questions are stored locally in the configured SQLite question bank. You can search them later or reuse them in future papers.")
+                if st.button("Save all questions", use_container_width=True):
+                    saved = 0
+                    for section in sections:
+                        for q in section.get("questions", []):
+                            try:
+                                payload_q = dict(q)
+                                payload_q["question_text"] = payload_q.get("question", payload_q.get("question_text", ""))
+                                payload_q["question_type"] = payload_q.get("type", section.get("question_type", ""))
+                                st.session_state.api_client.save_question_to_bank(payload_q, paper.get("topic", ""))
+                                saved += 1
+                            except Exception as exc:
+                                logger.warning("Question bank save failed: %s", exc)
+                    st.success(f"Saved {saved} question(s) to the bank.")
+
         # ==================== TEACHER MODE TOGGLE ====================
         st.divider()
         with st.expander("👨‍🏫 Teacher Options"):

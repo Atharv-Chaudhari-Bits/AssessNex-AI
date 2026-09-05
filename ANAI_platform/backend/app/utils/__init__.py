@@ -27,8 +27,10 @@ from backend.app.utils.helpers import (
     format_question_content,
     format_all_questions,
     fix_latex_backslashes,
+    normalize_latex_delimiters,
     fix_question_latex,
 )
+from backend.app.utils.visuals import render_visual, attach_rendered_visual
 from backend.app.utils.formatters import (
     FormatFlags,
     ContentFormatter,
@@ -100,6 +102,7 @@ __all__ = [
     "format_question_content",
     "format_all_questions",
     "fix_latex_backslashes",
+    "normalize_latex_delimiters",
     "fix_question_latex",
     
     # Formatter exports
@@ -119,6 +122,8 @@ __all__ = [
     "MATH_TYPES",
     "DIAGRAM_TYPES",
     "SCENARIO_TYPES",
+    "render_visual",
+    "attach_rendered_visual",
     
     # Document parser
     "parse_document_bytes",

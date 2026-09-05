@@ -60,3 +60,13 @@
 - Removed the remaining stale `react-beautiful-dnd` import.
 - Changed Render's React build from `npm ci` to `npm install` because the repository intentionally does not ship a lockfile yet.
 - Changed Vite production base to `/` for Render static hosting rather than a GitHub Pages subpath.
+
+## 2026-09-05 — Paper/Math/Visual UX upgrade
+
+- Added a teacher-facing answer key and marking scheme to generated question papers.
+- Added a separate answer-key section in the Streamlit paper view and included it in text export.
+- Added background paper-generation jobs with real LangGraph node progress reporting so users see what the system is doing while Gemini is working.
+- Added deterministic server-side graph rendering for LLM-specified function, line, and scatter graphs.
+- Preserved rendered visuals through the question schema and displayed them in both question and paper views.
+- Tightened LaTeX normalization, including `\\(...\\)`, `\\[...\\]`, and common escaped-command corruption.
+- Added explicit Gemini prompt rules for valid LaTeX and structured visual specifications.

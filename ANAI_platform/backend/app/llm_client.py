@@ -95,6 +95,8 @@ class LLMClient:
         self.settings = settings
         self.provider = "google"
         self.model = settings.GOOGLE_MODEL
+        self.fallback_model = settings.GOOGLE_FALLBACK_MODEL.strip()
+        self._fallback_llm = None
         self._initialized = True
         logger.info("Initialized Gemini provider: %s", self.model)
 
@@ -124,8 +126,27 @@ class LLMClient:
 
     @retry_with_backoff(3, 2.0, 30.0)
     def _invoke(self, messages: List[Any]) -> str:
-        response = self.llm.invoke(messages)
-        return self._content(response).strip()
+        try:
+            response = self.llm.invoke(messages)
+            return self._content(response).strip()
+        except Exception as exc:
+            # Optional production fallback, controlled entirely by an env variable.
+            # It is only used after the primary model fails; normal traffic stays on GOOGLE_MODEL.
+            if not self.fallback_model or self.fallback_model == self.model:
+                raise
+            try:
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                if self._fallback_llm is None:
+                    self._fallback_llm = ChatGoogleGenerativeAI(
+                        model=self.fallback_model, google_api_key=self.settings.GOOGLE_API_KEY,
+                        temperature=self.settings.LLM_TEMPERATURE, max_tokens=self.settings.LLM_MAX_TOKENS,
+                        timeout=self.settings.REQUEST_TIMEOUT, max_retries=0,
+                    )
+                logger.warning("Primary Gemini model %s failed; using fallback model %s: %s", self.model, self.fallback_model, exc)
+                response = self._fallback_llm.invoke(messages)
+                return self._content(response).strip()
+            except Exception:
+                raise exc
 
     def generate_message(self, prompt: str, system_message: Optional[str] = None) -> str:
         """Generate plain text from Gemini."""

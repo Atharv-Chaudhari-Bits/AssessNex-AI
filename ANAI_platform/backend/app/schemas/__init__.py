@@ -226,6 +226,10 @@ class Question(BaseModel):
     )
     expected_answer: str = Field(..., description="Expected answer")
     explanation: Optional[str] = Field(None, description="Answer explanation")
+    visual: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional deterministic visual specification and rendered image payload"
+    )
     tags: Optional[List[str]] = Field(
         default=None,
         description="Tags for categorization"

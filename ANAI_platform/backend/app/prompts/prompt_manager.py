@@ -701,7 +701,7 @@ Options (for MCQ) MUST be plausible and distinct - no obvious wrong answers
 FORMAT REQUIREMENTS:
 
 Return ONLY this JSON array format:
-[{{"question_text": "...", "question_type": "{question_type}", "difficulty_level": "{difficulty_level}", "bloom_level": "{bloom_level if bloom_level else 'Not Specified'}", "subject": "{subject}", "options": ["...", "...", "...", "..."], "expected_answer": "...", "explanation": "...", "tags": ["..."], "content_flags": {{"has_code": false, "has_latex": false, "has_diagram": false, "code_language": null}}}}]
+[{{"question_text": "...", "question_type": "{question_type}", "difficulty_level": "{difficulty_level}", "bloom_level": "{bloom_level if bloom_level else 'Not Specified'}", "subject": "{subject}", "options": ["...", "...", "...", "..."], "expected_answer": "...", "explanation": "...", "tags": ["..."], "content_flags": {{"has_code": false, "has_latex": false, "has_diagram": false, "code_language": null}}, "visual": null}}]
 
 CONTENT_FLAGS FIELD (MANDATORY):
 
@@ -712,6 +712,21 @@ has_latex: true if question/answer contains mathematical formulas (LaTeX)
 has_diagram: true if question/answer contains mermaid/diagram syntax
 
 code_language: if has_code is true, specify the language (python, javascript, sql, etc.) otherwise null
+
+VISUAL FIELD (MANDATORY):
+- Set visual to null for ordinary text questions.
+- For a question that genuinely benefits from a mathematical graph or plotted data, set visual to an object like:
+  {{"type":"function_graph","expression":"x**2","x_min":-5,"x_max":5,"y_min":-2,"y_max":28,"title":"...","x_label":"x","y_label":"y","label":"f(x)"}}
+- Use only simple Python/SymPy-style expressions using x, numbers, +, -, *, /, ** and functions sin, cos, tan, exp, sqrt, log, log10, abs, pi, e.
+- For plotted data, use an object with type "line_graph" or "scatter_graph" and a points array such as [[1,2],[2,4]].
+- Do NOT put base64, HTML, SVG, JavaScript, or Mermaid in visual. The application renders the image itself.
+- Do not create a visual merely for decoration; use it only when it improves the question.
+
+LATEX QUALITY RULES:
+- Mathematical expressions MUST use valid LaTeX delimiters: $...$ for inline and $$...$$ for display math.
+- Never write raw LaTeX commands outside math delimiters.
+- Escape JSON backslashes correctly. For example, the JSON string for \\frac{{a}}{{b}} must contain two backslashes so the parsed value contains \\frac{{a}}{{b}}.
+- Prefer canonical commands such as \\frac, \\sqrt, \\sum, \\le, \\ge, \\neq, \\times and \\text{{}}.
 
 Generate {num_questions} diverse, innovative, and unique questions as JSON array now:"""
         return request

@@ -794,6 +794,55 @@ class APIClient:
             logger.error(f"Error generating paper: {str(e)}")
             raise
 
+    def generate_paper_with_progress(
+        self,
+        payload: Dict[str, Any],
+        progress_callback: Optional[Callable[[str, int], None]] = None,
+        poll_interval: float = 1.0,
+    ) -> Dict[str, Any]:
+        """Start paper generation as a background job and poll real progress."""
+        import time as _time
+
+        start = self._make_request(
+            "POST",
+            f"{StreamlitConfig.API_V1_PREFIX}/papers/generate/async",
+            json=payload,
+        )
+        job_id = start.get("job_id")
+        if not job_id:
+            raise RuntimeError("Backend did not return a paper generation job id")
+
+        while True:
+            status = self._make_request(
+                "GET",
+                f"{StreamlitConfig.API_V1_PREFIX}/papers/jobs/{job_id}",
+            )
+            message = status.get("message", "Generating the question paper")
+            progress = int(status.get("progress", 0))
+            if progress_callback:
+                progress_callback(message, progress)
+
+            if status.get("status") == "completed":
+                result = status.get("result") or {}
+                return result
+            if status.get("status") == "failed":
+                raise RuntimeError(status.get("error") or message or "Paper generation failed")
+            _time.sleep(poll_interval)
+
+
+    def export_paper(self, paper: Dict[str, Any], fmt: str = "pdf", include_answers: bool = False) -> bytes:
+        """Return a professional paper export as raw bytes."""
+        url = f"{self.base_url}{StreamlitConfig.API_V1_PREFIX}/papers/export"
+        response = self.session.post(url, params={"format": fmt, "include_answers": str(include_answers).lower()}, json=paper, timeout=self.timeout)
+        response.raise_for_status()
+        return response.content
+
+    def save_question_to_bank(self, question: Dict[str, Any], topic: str = "") -> Dict[str, Any]:
+        return self._make_request("POST", f"{StreamlitConfig.API_V1_PREFIX}/papers/question-bank/save", params={"topic": topic}, json=question)
+
+    def search_question_bank(self, q: str = "", subject: Optional[str] = None, difficulty: Optional[str] = None, limit: int = 50) -> Dict[str, Any]:
+        return self._make_request("GET", f"{StreamlitConfig.API_V1_PREFIX}/papers/question-bank/search", params={"q": q or None, "subject": subject, "difficulty": difficulty, "limit": limit})
+
     def get_bloom_levels(self) -> Dict[str, Any]:
         """Get available Bloom's taxonomy levels."""
         try:
@@ -846,22 +895,21 @@ class APIClient:
     def generate_paper_with_payload(
         self,
         payload: Dict[str, Any],
-        progress_callback: Optional[Callable[[str], None]] = None
+        progress_callback: Optional[Callable[..., None]] = None
     ) -> Dict[str, Any]:
-        """Generate a question paper with Bloom's taxonomy support."""
+        """Generate a question paper while exposing real backend progress."""
         try:
-            if progress_callback:
-                progress_callback("📤 Uploading configuration...")
+            def callback(message: str, progress: int):
+                if progress_callback:
+                    try:
+                        progress_callback(message, progress)
+                    except TypeError:
+                        progress_callback(message)
 
-            response = self._make_request(
-                "POST",
-                f"{StreamlitConfig.API_V1_PREFIX}/papers/generate",
-                json=payload,
-                progress_callback=progress_callback,
+            return self.generate_paper_with_progress(
+                payload,
+                progress_callback=callback,
             )
-
-            return response
-
         except Exception as e:
             logger.error(f"Error generating paper: {str(e)}")
             raise

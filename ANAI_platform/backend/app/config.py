@@ -42,7 +42,9 @@ class Settings(BaseSettings):
     ENABLE_PROVIDER_GROQ: bool = False
 
     GOOGLE_API_KEY: str = ""
+    # Change GOOGLE_MODEL in Render without code changes.
     GOOGLE_MODEL: str = "gemini-2.5-flash"
+    GOOGLE_FALLBACK_MODEL: str = ""
 
     # Legacy provider configuration is retained for controlled migration only.
     AZURE_OPENAI_API_KEY: str = ""
@@ -68,6 +70,12 @@ class Settings(BaseSettings):
     ENABLE_QUESTION_PAPER_GENERATION: bool = True
     ENABLE_PLAGIARISM_CHECK: bool = False
     ENABLE_LEGACY_STREAMLIT_FRONTEND: bool = False
+    ENABLE_QUALITY_CHECK: bool = True
+    ENABLE_MATH_VALIDATION: bool = True
+    ENABLE_VISUAL_GENERATION: bool = True
+    ENABLE_PAPER_EXPORTS: bool = True
+    ENABLE_QUESTION_BANK: bool = True
+    ENABLE_MULTI_VERSION_PAPERS: bool = True
 
     SUBJECTS: List[str] = [
         "Machine Learning",
@@ -111,6 +119,15 @@ class Settings(BaseSettings):
     DIFFICULTY_LEVELS: List[str] = ["Easy", "Medium", "Hard"]
     DEFAULT_QUESTIONS_COUNT: int = 5
     MAX_QUESTIONS_COUNT: int = 50
+
+    # Production tuning: change these from Render environment variables.
+    PAPER_QUALITY_THRESHOLD: int = 85
+    PAPER_MAX_VERSIONS: int = 4
+    PAPER_JOB_TTL_SECONDS: int = 3600
+    PAPER_POLL_INTERVAL_SECONDS: float = 1.0
+    QUESTION_BANK_DB_PATH: str = "data/question_bank.sqlite3"
+    VISUAL_RENDER_DPI: int = 150
+    VISUAL_MAX_POINTS: int = 1000
 
     # API/server
     API_V1_STR: str = "/api/v1"
