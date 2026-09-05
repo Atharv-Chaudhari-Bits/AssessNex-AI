@@ -117,40 +117,34 @@ The active application now has one LLM entry point: `backend.app.llm_client.get_
 
 ## Render deployment
 
-AssessNex runs as **one Render web service** with **Honcho** managing both processes:
+AssessNex uses **one Render Web Service** with **Honcho** managing both processes.
 
 ```text
 Honcho
-├── backend   -> FastAPI on port 8000
-└── frontend  -> Streamlit on Render $PORT
+├── frontend -> Streamlit -> 0.0.0.0:$PORT   (public)
+└── backend  -> FastAPI   -> 127.0.0.1:8000  (private)
 ```
 
-Honcho is an intentional runtime dependency. It reads the root `Procfile` and starts both processes together. This is the same single-terminal workflow used locally.
+Render must expose the Streamlit process because Render supplies `$PORT` to the public process. FastAPI deliberately binds to `127.0.0.1` so Render cannot accidentally detect or route public traffic to the backend.
 
-Install:
+Build command:
 
 ```bash
 pip install -r ANAI_platform/requirements.txt
 ```
 
-Run both locally:
+Start command:
 
 ```bash
 honcho start
 ```
 
-The backend uses `BACKEND_PORT` (default `8000`). The Streamlit frontend uses `PORT` (default `10000` locally, and Render's supplied `$PORT` in production).
+Do not create separate Render services for the frontend/backend.
 
-For Render:
+The Streamlit frontend calls FastAPI internally at:
 
 ```text
-Build Command:
-pip install -r ANAI_platform/requirements.txt
-
-Start Command:
-honcho start
+http://127.0.0.1:8000
 ```
 
-Render exposes the Streamlit process because it binds to `$PORT`. The Streamlit UI talks to the colocated FastAPI backend on port `8000`.
-
-No `.env` file is required on Render. Configure application environment variables in Render's Environment settings.
+No `.env` file is required on Render. Put Gemini and application environment variables in Render's Environment settings.
