@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: assessnex-api
+    runtime: python
+    rootDir: ANAI_platform
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+
+  - type: web
+    name: assessnex-frontend
+    runtime: static
+    rootDir: ANAI_reactapp
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist

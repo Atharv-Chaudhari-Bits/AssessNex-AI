@@ -119,7 +119,6 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:5173",
         "http://localhost:8000",
-        "http://localhost:8501",
     ]
     SERVER_HOST: str = "0.0.0.0"
     SERVER_PORT: int = 8000

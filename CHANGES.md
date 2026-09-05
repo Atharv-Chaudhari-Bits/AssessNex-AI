@@ -41,3 +41,14 @@
 - Added a canonical dependency layout and separated legacy Streamlit dependencies.
 - Removed generated caches, logs and frontend build artifacts from the deliverable.
 - Rewrote the root and frontend setup documentation.
+
+
+## Deployment hotfix — September 2026
+
+- Fixed LangGraph/LangChain Core incompatibility by pinning `langchain-core==1.5.5` with `langgraph==1.2.11`.
+- Removed the broken LangGraph import compatibility shim.
+- Replaced the Render Procfile process type with `web` and bind to Render's `$PORT`.
+- Removed the nested Procfile so Render cannot accidentally launch the wrong process definition.
+- Added `render.yaml` for separate FastAPI and Vite deployments.
+- React now consistently supports `VITE_API_BASE_URL` (with `VITE_API_BASE` retained as a fallback).
+- Render is explicitly configured to use FastAPI + React; legacy Streamlit is not part of the normal deployment.

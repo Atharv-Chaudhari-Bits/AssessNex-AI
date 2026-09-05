@@ -113,3 +113,18 @@ The legacy Streamlit dependencies live separately in `ANAI_platform/requirements
 The cleanup removed generated Python caches, committed runtime logs, generated frontend `dist` output, duplicate CRA entry points/tests, duplicate dependency declarations, direct Azure/OpenAI/Groq initialization from active agents, and the old LangGraph monkey-patch.
 
 The active application now has one LLM entry point: `backend.app.llm_client.get_llm_client()`.
+
+
+## Render deployment
+
+The production deployment uses **FastAPI as the web service** and the **Vite React app as a static site**. Do not use `honcho start` and do not start the legacy Streamlit application on Render.
+
+The repository includes `render.yaml` with both services.
+
+Backend start command:
+
+```bash
+cd ANAI_platform && python -m uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+```
+
+Set the required environment variables in Render's service environment. The application does not require a committed `.env` file.

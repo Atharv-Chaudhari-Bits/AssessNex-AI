@@ -20,15 +20,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 import operator
 
-# Replace this:
 from langgraph.graph import StateGraph, END
-
-# With this:
-try:
-    from langgraph.graph import StateGraph, END
-except ImportError:
-    from langgraph.graph import StateGraph, END as EndNode
-    END = EndNode
 
 from langgraph.checkpoint.memory import MemorySaver
 

@@ -1,1 +1,1 @@
-backend: cd ANAI_platform && python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+web: cd ANAI_platform && python -m uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
