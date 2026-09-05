@@ -730,6 +730,24 @@ class APIClient:
             raise
 
     # ========================================================================
+    # EVALUATION METHODS
+    # ========================================================================
+
+    def evaluate_paper(self, paper: Dict[str, Any], answers: Dict[str, str], student_name: str = "Student") -> Dict[str, Any]:
+        """Evaluate a generated paper against student answers."""
+        return self._make_request(
+            "POST",
+            f"{StreamlitConfig.API_V1_PREFIX}/evaluation/evaluate",
+            json={"paper": paper, "answers": answers, "student_name": student_name},
+        )
+
+    def export_evaluation_pdf(self, evaluation: Dict[str, Any]) -> bytes:
+        url = f"{self.base_url}{StreamlitConfig.API_V1_PREFIX}/evaluation/export-pdf"
+        response = self.session.post(url, json=evaluation, timeout=self.timeout)
+        response.raise_for_status()
+        return response.content
+
+    # ========================================================================
     # PAPER AND DOCUMENT METHODS
     # ========================================================================
 

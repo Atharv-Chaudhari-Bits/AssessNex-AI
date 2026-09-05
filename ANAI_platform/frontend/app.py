@@ -1568,7 +1568,7 @@ st.markdown("""
 # TAB INTERFACE
 # ============================================================================
 
-tab1, tab2, tab3, tab4 = st.tabs([" Generate Questions", " Question Paper", " Assignment", " Customised Q&A"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([" Generate Questions", " Question Paper", " Assignment", " Customised Q&A", " 🧾 Evaluate Paper"])
 
 
 # ============================================================================
@@ -1997,30 +1997,66 @@ with tab2:
     else:
         st.success("✅ Question type distribution valid")
 
-    question_type_config = []
+    # Per-section configuration: the values selected here are sent verbatim to the backend.
+    marks_each = max(1, total_marks // max(total_questions, 1))
+    st.markdown("#### ⚙️ Section Configuration")
+    active_types = [
+        ("Multiple Choice", mcq), ("Short Answer", short_ans), ("Long Answer", long_ans),
+        ("True/False", tf), ("Fill in the Blank", fill), ("Numerical Problem", numerical),
+        ("Code Implementation", code), ("Diagram-Based", diagram),
+    ]
+    section_settings = {}
+    for idx, (type_name, count) in enumerate(active_types):
+        if count <= 0:
+            continue
+        c1, c2 = st.columns(2)
+        with c1:
+            section_settings[type_name] = {
+                "difficulty": st.selectbox(
+                    f"{type_name} difficulty", ["mixed", "easy", "medium", "hard"],
+                    index=0,
+                    key=f"difficulty_{idx}",
+                )
+            }
+        with c2:
+            section_settings[type_name]["marks_each"] = st.number_input(
+                f"{type_name} marks each", min_value=1, max_value=max(1, total_marks),
+                value=max(1, marks_each), key=f"marks_each_{idx}"
+            )
 
-    def add_q(type_name, count, marks_each):
+    question_type_config = []
+    for type_name, count in active_types:
         if count > 0:
+            cfg = section_settings[type_name]
             question_type_config.append({
                 "type": type_name,
-                "count": count,
-                "marks_each": marks_each,
-                "difficulty": "medium",
-                "bloom_levels": ["Remember", "Understand", "Apply"]
+                "count": int(count),
+                "marks_each": int(cfg["marks_each"]),
+                "difficulty": cfg["difficulty"],
+                "bloom_levels": [],
             })
 
-    marks_each = max(1, total_marks // max(total_questions, 1))
-
-    add_q("Multiple Choice", mcq, marks_each)
-    add_q("Short Answer", short_ans, marks_each)
-    add_q("Long Answer", long_ans, marks_each)
-    add_q("True/False", tf, marks_each)
-    add_q("Fill in the Blank", fill, marks_each)
-    add_q("Numerical Problem", numerical, marks_each)
-    add_q("Code Implementation", code, marks_each)
-    add_q("Diagram-Based", diagram, marks_each)
+    configured_marks = sum(c["count"] * c["marks_each"] for c in question_type_config)
+    if configured_marks != total_marks:
+        st.warning(f"⚠️ Section marks total {configured_marks}, but paper total is {total_marks}. Adjust marks per question or Total Marks before generating.")
+    else:
+        st.success(f"✅ Section configuration matches {total_marks} total marks")
 
     st.divider()
+    st.markdown("#### 🧠 Bloom's Taxonomy Distribution")
+    bloom_defaults = {"Remember": 10, "Understand": 25, "Apply": 30, "Analyze": 20, "Evaluate": 10, "Create": 5}
+    bloom_distribution = {}
+    bloom_cols = st.columns(3)
+    for i, level in enumerate(bloom_defaults):
+        with bloom_cols[i % 3]:
+            bloom_distribution[level] = st.number_input(
+                level, min_value=0, max_value=100, value=bloom_defaults[level], step=5, key=f"bloom_{level}"
+            )
+    bloom_total = sum(bloom_distribution.values())
+    if bloom_total != 100:
+        st.warning(f"⚠️ Bloom distribution totals {bloom_total}%. It must total 100%.")
+    else:
+        st.success("✅ Bloom distribution totals 100%")
 
     # ---------------- Document-Based Generation ----------------
     st.markdown("### 📄 Document-Based Generation (Optional)")
@@ -2065,7 +2101,7 @@ with tab2:
 
     # ---------------- Generate Button ----------------
     if st.button("🚀 Generate Paper", type="primary", use_container_width=True):
-        if diff_total != total_questions or type_total != total_questions:
+        if diff_total != total_questions or type_total != total_questions or configured_marks != total_marks or bloom_total != 100:
             st.error("❌ Fix distributions before generating paper")
         else:
             try:
@@ -2075,11 +2111,15 @@ with tab2:
                     "exam_name": paper_name,
                     "subject": paper_subject,
                     "topic": paper_topic or paper_name,
-                    "total_marks": total_marks,
-                    "duration_minutes": paper_duration,
+                    "total_marks": int(total_marks),
+                    "duration_minutes": int(paper_duration),
                     "question_type_config": question_type_config,
+                    "difficulty_distribution": difficulty_distribution,
                     "bloom_distribution": bloom_distribution,
-                    "instructions": paper_instructions
+                    "instructions": paper_instructions,
+                    "enable_validation": True,
+                    "enable_metrics": True,
+                    "enable_explainability": True,
                 }
 
                 progress_bar = st.progress(0)

@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     ENABLE_PAPER_EXPORTS: bool = True
     ENABLE_QUESTION_BANK: bool = True
     ENABLE_MULTI_VERSION_PAPERS: bool = True
+    ENABLE_EVALUATION: bool = True
+    ENABLE_EVALUATION_GEMINI: bool = True
+    EVALUATION_PASS_PERCENT: float = 40.0
 
     SUBJECTS: List[str] = [
         "Machine Learning",

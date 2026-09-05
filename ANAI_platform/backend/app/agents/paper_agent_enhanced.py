@@ -312,8 +312,18 @@ class QuestionPaperAgent:
         q_type = config.get("type", "Multiple Choice")
         num_questions = config.get("count", 5)
         difficulty = config.get("difficulty", "medium")
+        if str(difficulty).lower() == "mixed":
+            target = state.get("difficulty_distribution", {}) or {}
+            assigned = {"easy": 0, "medium": 0, "hard": 0}
+            for existing_section in state.get("sections", []):
+                for existing_question in existing_section.get("questions", []):
+                    level = str(existing_question.get("difficulty_level", existing_question.get("difficulty", ""))).lower()
+                    if level in assigned:
+                        assigned[level] += 1
+            target_total = max(1, sum(int(v) for v in target.values()))
+            difficulty = max(assigned.keys(), key=lambda level: (float(target.get(level.title(), target.get(level, 0))) / target_total) * max(sum(c.get("count", 0) for c in question_configs), 1) - assigned[level])
         
-        logger.info(f"Generating section {current_idx + 1}: {q_type} ({num_questions} questions)")
+        logger.info(f"Generating section {current_idx + 1}: {q_type} ({num_questions} questions, difficulty={difficulty})")
         
         # Determine Bloom levels for this section
         allowed_bloom_levels = QUESTION_TYPE_BLOOM_MAPPING.get(q_type, [])
@@ -335,7 +345,16 @@ class QuestionPaperAgent:
             # Enrich with Bloom level and metadata
             for j, q in enumerate(questions):
                 # Assign Bloom level based on difficulty and question type
-                bloom_level = self._select_bloom_level(difficulty, allowed_bloom_levels, j, num_questions)
+                assigned_counts = {}
+                for existing_section in state.get("sections", []):
+                    for existing_question in existing_section.get("questions", []):
+                        level = existing_question.get("bloom_level")
+                        if level:
+                            assigned_counts[level] = assigned_counts.get(level, 0) + 1
+                bloom_level = self._select_bloom_level(
+                    difficulty, allowed_bloom_levels, j, num_questions,
+                    target_distribution=bloom_distribution, assigned_counts=assigned_counts
+                )
                 
                 q["question_number"] = question_number
                 q["marks"] = config.get("marks_each", 2)
@@ -569,41 +588,46 @@ class QuestionPaperAgent:
             "status": "completed"
         }
 
-    def _select_bloom_level(self, difficulty: str, allowed_levels: List[str], position: int, total: int) -> str:
-        """
-        Select appropriate Bloom level for a question.
-        
-        Args:
-            difficulty: Base difficulty level
-            allowed_levels: List of allowed Bloom levels for this question type
-            position: Position of question in section
-            total: Total questions in section
-            
-        Returns:
-            str: Selected Bloom level
-        """
-        # Simple distribution: early questions easier, later questions harder
+    def _select_bloom_level(
+        self,
+        difficulty: str,
+        allowed_levels: List[str],
+        position: int,
+        total: int,
+        target_distribution: Optional[Dict[str, int]] = None,
+        assigned_counts: Optional[Dict[str, int]] = None,
+    ) -> str:
+        """Select a Bloom level while respecting the requested distribution."""
+        allowed_levels = allowed_levels or [BloomLevel.APPLY.value]
+        target_distribution = target_distribution or {}
+        assigned_counts = assigned_counts or {}
+
+        if target_distribution:
+            total_target = max(1, sum(max(0, int(v)) for v in target_distribution.values()))
+            total_questions = max(1, sum(1 for _ in range(position + 1)))
+            # Pick the allowed level with the largest proportional deficit.
+            def deficit(level: str) -> float:
+                target = (float(target_distribution.get(level, 0)) / total_target) * max(total, 1)
+                actual = float(assigned_counts.get(level, 0))
+                return target - actual
+            best = max(allowed_levels, key=deficit)
+            if deficit(best) > -1.0:
+                return best
+
+        # Fallback: preserve the existing difficulty-aware progression.
         if position < total * 0.3:
-            # First 30%: lower Bloom levels
             filtered = [l for l in allowed_levels if l in [BloomLevel.REMEMBER.value, BloomLevel.UNDERSTAND.value]]
         elif position < total * 0.7:
-            # Middle 40%: medium Bloom levels
             filtered = [l for l in allowed_levels if l in [BloomLevel.UNDERSTAND.value, BloomLevel.APPLY.value]]
         else:
-            # Last 30%: higher Bloom levels
             filtered = [l for l in allowed_levels if l in [BloomLevel.ANALYZE.value, BloomLevel.EVALUATE.value, BloomLevel.CREATE.value]]
-        
-        # Fallback to allowed_levels if filtered is empty
         if not filtered:
             filtered = allowed_levels
-        
-        # Consider difficulty for finer adjustment
         if difficulty.lower() == "hard" and BloomLevel.CREATE.value in filtered:
             return BloomLevel.CREATE.value
-        elif difficulty.lower() == "easy" and BloomLevel.REMEMBER.value in filtered:
+        if difficulty.lower() == "easy" and BloomLevel.REMEMBER.value in filtered:
             return BloomLevel.REMEMBER.value
-        
-        return filtered[0] if filtered else allowed_levels[0] if allowed_levels else "Apply"
+        return filtered[0]
 
     def _get_section_instructions(self, question_type: str) -> str:
         """Get instructions for a section based on question type"""

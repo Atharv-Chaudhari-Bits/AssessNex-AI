@@ -1,5 +1,5 @@
 """Active FastAPI routers."""
 
-from backend.app.routers import documents, health, papers_enhanced, plagiarism, questions
+from backend.app.routers import documents, evaluation, health, papers_enhanced, plagiarism, questions
 
-__all__ = ["health", "questions", "plagiarism", "papers_enhanced", "documents"]
+__all__ = ["health", "questions", "plagiarism", "papers_enhanced", "documents", "evaluation"]

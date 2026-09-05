@@ -181,3 +181,17 @@ VISUAL_MAX_POINTS=1000
 ### Assessment workflow
 
 Question-paper generation now supports real progress updates, answer keys, marking schemes, a paper blueprint, deterministic quality checks, math sanity checks, reproducible graph rendering, professional PDF/DOCX export, multi-version paper generation, and a SQLite-backed question bank. The Gemini model remains configurable through `GOOGLE_MODEL`; an optional `GOOGLE_FALLBACK_MODEL` is used only if the primary model fails.
+
+## Evaluation
+
+After generating a paper, use the **Evaluate Paper** tab to enter student answers and grade the paper. Objective questions are checked deterministically; subjective questions are evaluated in a single Gemini rubric request and are capped at the configured maximum marks. Evaluation reports can be exported to PDF.
+
+### Production environment variables
+
+```text
+ENABLE_EVALUATION=true
+ENABLE_EVALUATION_GEMINI=true
+EVALUATION_PASS_PERCENT=40
+```
+
+The paper generator now forwards the visible UI configuration instead of silently replacing it with backend defaults.
