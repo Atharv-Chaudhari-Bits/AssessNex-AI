@@ -45,10 +45,18 @@
 
 ## Deployment hotfix — September 2026
 
-- Fixed LangGraph/LangChain Core incompatibility by pinning `langchain-core==1.5.5` with `langgraph==1.2.11`.
+- Fixed LangGraph/LangChain Core incompatibility by pinning `langchain-core==1.6.1` with `langgraph==1.2.11` and `langchain-google-genai==4.4.0`.
 - Removed the broken LangGraph import compatibility shim.
 - Replaced the Render Procfile process type with `web` and bind to Render's `$PORT`.
 - Removed the nested Procfile so Render cannot accidentally launch the wrong process definition.
 - Added `render.yaml` for separate FastAPI and Vite deployments.
 - React now consistently supports `VITE_API_BASE_URL` (with `VITE_API_BASE` retained as a fallback).
 - Render is explicitly configured to use FastAPI + React; legacy Streamlit is not part of the normal deployment.
+
+## 2026-09-05 — Render/dependency correction
+
+- Corrected `langchain-core` to `1.6.1`; `langchain-google-genai 4.4.0` requires Core >=1.6.1.
+- Kept LangGraph on the compatible 1.2.11 line.
+- Removed the remaining stale `react-beautiful-dnd` import.
+- Changed Render's React build from `npm ci` to `npm install` because the repository intentionally does not ship a lockfile yet.
+- Changed Vite production base to `/` for Render static hosting rather than a GitHub Pages subpath.

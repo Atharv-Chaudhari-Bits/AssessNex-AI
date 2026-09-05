@@ -8,9 +8,10 @@ python-multipart==0.0.32
 httpx==0.28.1
 python-dotenv==1.2.1
 typing-extensions==4.15.0
+honcho==2.0.0
 
 # LangChain / Gemini / LangGraph
-langchain-core==1.5.5
+langchain-core==1.6.1
 langchain-google-genai==4.4.0
 langgraph==1.2.11
 langgraph-checkpoint==4.2.0

@@ -1,7 +1,3 @@
-# Active backend runtime. The legacy Streamlit UI has its own optional file.
+# Single-terminal AssessNex runtime: FastAPI + Gemini + Streamlit + Honcho.
 -r backend/requirements.txt
-
-# Development tooling
-black==23.12.1
-isort==5.13.2
-pylint==3.0.3
+-r requirements-legacy.txt

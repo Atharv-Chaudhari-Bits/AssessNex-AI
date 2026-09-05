@@ -117,14 +117,40 @@ The active application now has one LLM entry point: `backend.app.llm_client.get_
 
 ## Render deployment
 
-The production deployment uses **FastAPI as the web service** and the **Vite React app as a static site**. Do not use `honcho start` and do not start the legacy Streamlit application on Render.
+AssessNex runs as **one Render web service** with **Honcho** managing both processes:
 
-The repository includes `render.yaml` with both services.
-
-Backend start command:
-
-```bash
-cd ANAI_platform && python -m uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+```text
+Honcho
+├── backend   -> FastAPI on port 8000
+└── frontend  -> Streamlit on Render $PORT
 ```
 
-Set the required environment variables in Render's service environment. The application does not require a committed `.env` file.
+Honcho is an intentional runtime dependency. It reads the root `Procfile` and starts both processes together. This is the same single-terminal workflow used locally.
+
+Install:
+
+```bash
+pip install -r ANAI_platform/requirements.txt
+```
+
+Run both locally:
+
+```bash
+honcho start
+```
+
+The backend uses `BACKEND_PORT` (default `8000`). The Streamlit frontend uses `PORT` (default `10000` locally, and Render's supplied `$PORT` in production).
+
+For Render:
+
+```text
+Build Command:
+pip install -r ANAI_platform/requirements.txt
+
+Start Command:
+honcho start
+```
+
+Render exposes the Streamlit process because it binds to `$PORT`. The Streamlit UI talks to the colocated FastAPI backend on port `8000`.
+
+No `.env` file is required on Render. Configure application environment variables in Render's Environment settings.

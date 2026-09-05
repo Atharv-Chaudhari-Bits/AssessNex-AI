@@ -129,6 +129,9 @@ async def batch_check_plagiarism(
         }
     """
     try:
+        if not get_settings().ENABLE_PLAGIARISM_CHECK:
+            raise HTTPException(status_code=503, detail="Plagiarism checking is disabled")
+
         logger.info(
             f"Batch plagiarism check for {len(request.questions)} questions"
         )
@@ -220,6 +223,9 @@ async def calculate_similarity(
         }
     """
     try:
+        if not get_settings().ENABLE_PLAGIARISM_CHECK:
+            raise HTTPException(status_code=503, detail="Plagiarism checking is disabled")
+
         logger.debug("Calculating similarity score for two questions")
 
         # Get agent
