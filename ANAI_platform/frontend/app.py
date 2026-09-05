@@ -2088,15 +2088,6 @@ with tab2:
         value="Answer all questions. Show all working where applicable."
     )
 
-    bloom_distribution = {
-        "Remember": 10,
-        "Understand": 25,
-        "Apply": 30,
-        "Analyze": 20,
-        "Evaluate": 10,
-        "Create": 5
-    }
-
     st.divider()
 
     # ---------------- Generate Button ----------------
@@ -4265,6 +4256,95 @@ You can view the complete question with options and answer in the "Generated Que
         
         The AI will generate questions calibrated to your selected cognitive level!
         """)
+
+
+# ============================================================================
+# TAB 5: PAPER EVALUATION
+# ============================================================================
+with tab5:
+    display_header("🧾 Evaluate Paper", "Enter student answers and receive marks, feedback and a teacher report")
+    generated_paper = st.session_state.get("generated_paper") or {}
+    if not generated_paper:
+        st.info("### No generated paper is available yet\nGenerate a question paper in the **📄 Question Paper** tab first. Once it is generated, its answer key and marking scheme will automatically be available here.")
+    else:
+        answer_key = generated_paper.get("answer_key") or []
+        paper_sections = generated_paper.get("sections") or []
+        question_rows = []
+        for section in paper_sections:
+            for q in section.get("questions", []) or []:
+                qnum = str(q.get("question_number", ""))
+                if qnum:
+                    question_rows.append((qnum, q, section.get("title", "Section")))
+        if not answer_key:
+            st.warning("⚠️ This paper does not contain an answer key. Generate a new paper with the current version so the evaluation engine can grade it.")
+        elif not question_rows:
+            st.warning("⚠️ The generated paper contains no evaluable questions.")
+        else:
+            st.success(f"✅ Paper loaded: **{generated_paper.get('exam_name', generated_paper.get('title', 'Generated Paper'))}** · {len(question_rows)} questions · {generated_paper.get('total_marks', '—')} marks")
+            student_name = st.text_input("👤 Student Name", value="Student", key="evaluation_student_name")
+            st.markdown("### ✍️ Student Answers")
+            st.caption("Enter the student's answers below. Objective questions are graded deterministically; subjective answers are evaluated against the generated marking scheme when Gemini evaluation is enabled.")
+            answers = {}
+            for qnum, q, section_title in question_rows:
+                marks = q.get("marks", "")
+                qtext = q.get("question", q.get("question_text", ""))
+                qtype = q.get("type", q.get("question_type", ""))
+                with st.container(border=True):
+                    st.markdown(f"**Q{qnum} · {qtype} · {marks} marks**")
+                    st.markdown(render_latex_text(str(qtext)))
+                    options = q.get("options") or []
+                    if options:
+                        for idx, option in enumerate(options):
+                            st.markdown(f"**{chr(65+idx)}.** {render_latex_text(str(option))}")
+                    answers[qnum] = st.text_area(f"Student answer — Q{qnum}", key=f"evaluation_answer_{qnum}", height=90 if str(qtype).lower() not in {"multiple choice", "true/false", "fill in the blank"} else 55, label_visibility="collapsed", placeholder="Enter the student's answer…")
+            c1, c2 = st.columns(2)
+            with c1:
+                evaluate_clicked = st.button("🧠 Evaluate Paper", type="primary", use_container_width=True)
+            with c2:
+                clear_clicked = st.button("🧹 Clear Answers", use_container_width=True)
+            if clear_clicked:
+                for qnum, _, _ in question_rows:
+                    st.session_state.pop(f"evaluation_answer_{qnum}", None)
+                st.session_state.pop("evaluation_result", None)
+                st.rerun()
+            if evaluate_clicked:
+                with st.spinner("Evaluating paper… checking objective answers and evaluating subjective responses with the configured rubric…"):
+                    try:
+                        result = st.session_state.api_client.evaluate_paper(generated_paper, answers, student_name=student_name.strip() or "Student")
+                        st.session_state.evaluation_result = result
+                    except Exception as exc:
+                        st.error(f"❌ Evaluation failed: {exc}")
+            result = st.session_state.get("evaluation_result")
+            if result:
+                st.divider()
+                st.markdown("## 📊 Evaluation Result")
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Marks", f"{result.get('awarded_marks', 0)} / {result.get('total_marks', 0)}")
+                m2.metric("Percentage", f"{result.get('percentage', 0)}%")
+                m3.metric("Grade", result.get("grade", "—"))
+                m4.metric("Result", "PASS ✅" if result.get("passed") else "FAIL ❌")
+                summary = result.get("summary") or {}
+                st.caption(f"Graded: {summary.get('graded_questions', 0)} · AI evaluated: {summary.get('ai_evaluated', 0)} · Manual review: {summary.get('manual_review', 0)} · Pass mark: {summary.get('pass_percent', 40)}%")
+                st.markdown("### 📝 Question-wise Evaluation")
+                for item in result.get("results", []) or []:
+                    qn = item.get("question_number", "")
+                    awarded = item.get("awarded_marks", 0)
+                    maximum = item.get("max_marks", 0)
+                    with st.expander(f"Q{qn} — {awarded}/{maximum} marks", expanded=False):
+                        st.markdown(render_latex_text(str(item.get("question", ""))))
+                        st.markdown(f"**Student answer:** {item.get('student_answer') or 'No answer provided.'}")
+                        st.markdown(f"**Expected answer:** {item.get('expected_answer') or 'See marking scheme.'}")
+                        st.info(f"**Feedback:** {item.get('feedback', '')}")
+                        if item.get("strengths"):
+                            st.markdown("**Strengths:** " + ", ".join(map(str, item.get("strengths"))))
+                        if item.get("missing_points"):
+                            st.markdown("**Missing points:** " + ", ".join(map(str, item.get("missing_points"))))
+                        st.caption(f"Evaluation method: {item.get('method', 'unknown')}")
+                try:
+                    pdf_bytes = st.session_state.api_client.export_evaluation_pdf(result)
+                    st.download_button("📄 Download Evaluation Report PDF", data=pdf_bytes, file_name=f"{student_name.strip() or 'Student'}_evaluation_report.pdf", mime="application/pdf", use_container_width=True)
+                except Exception as exc:
+                    st.warning(f"Evaluation completed, but the PDF report could not be generated: {exc}")
 
 if __name__ == "__main__":
     pass
