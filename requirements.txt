@@ -1,0 +1,7 @@
+# Active backend runtime. The legacy Streamlit UI has its own optional file.
+-r backend/requirements.txt
+
+# Development tooling
+black==23.12.1
+isort==5.13.2
+pylint==3.0.3

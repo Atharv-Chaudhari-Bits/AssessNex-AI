@@ -1,0 +1,1 @@
+"""AssessNex AI application package."""
