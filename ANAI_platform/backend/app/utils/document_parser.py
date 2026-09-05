@@ -13,11 +13,11 @@ logger = get_logger(__name__)
 
 # Try to import PDF parser
 try:
-    import PyPDF2
+    import pypdf
     PDF_AVAILABLE = True
 except ImportError:
     PDF_AVAILABLE = False
-    logger.warning("PyPDF2 not installed. PDF parsing will be disabled. Install with: pip install PyPDF2")
+    logger.warning("pypdf not installed. PDF parsing will be disabled. Install with: pip install pypdf")
 
 # Try to import DOCX parser
 try:
@@ -39,15 +39,15 @@ def parse_pdf_bytes(file_bytes: bytes) -> str:
         str: Extracted text from PDF
 
     Raises:
-        ImportError: If PyPDF2 is not installed
+        ImportError: If pypdf is not installed
         Exception: If PDF parsing fails
     """
     if not PDF_AVAILABLE:
-        raise ImportError("PyPDF2 is required for PDF parsing. Install with: pip install PyPDF2")
+        raise ImportError("pypdf is required for PDF parsing. Install with: pip install pypdf")
 
     try:
         pdf_file = io.BytesIO(file_bytes)
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        pdf_reader = pypdf.PdfReader(pdf_file)
 
         text_parts = []
         for page_num, page in enumerate(pdf_reader.pages):

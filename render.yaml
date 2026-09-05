@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: assessnex-ai
+    runtime: python
+    buildCommand: pip install -r ANAI_platform/requirements.txt
+    startCommand: honcho start
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: BACKEND_PORT
+        value: "8000"

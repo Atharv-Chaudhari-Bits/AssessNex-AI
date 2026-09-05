@@ -2,7 +2,7 @@
 AssessNex AI Backend Main Application.
 
 FastAPI application for generating AI/ML MTech level questions using
-Azure OpenAI and agentic AI patterns.
+Google Gemini and agentic AI patterns.
 """
 
 from contextlib import asynccontextmanager
@@ -11,10 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from backend.app.config import get_settings, logger
-from backend.app.middleware import LoggingMiddleware
-from backend.app.routers import health, questions, plagiarism, papers_enhanced, documents
+from backend.app.config import get_settings
 from backend.app.utils import get_logger
+from backend.app.middleware import LoggingMiddleware
+from backend.app.routers import health, questions, plagiarism, papers_enhanced, documents, evaluation
 
 # Get logger
 app_logger = get_logger(__name__)
@@ -73,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(plagiarism.router, prefix=settings.API_V1_STR)
     app.include_router(papers_enhanced.router, prefix=settings.API_V1_STR)
     app.include_router(documents.router, prefix=settings.API_V1_STR)
+    app.include_router(evaluation.router, prefix=settings.API_V1_STR)
 
     # Root endpoint
     @app.get("/", tags=["root"])

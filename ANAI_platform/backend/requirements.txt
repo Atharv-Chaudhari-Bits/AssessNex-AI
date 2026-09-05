@@ -1,32 +1,29 @@
-fastapi==0.124.4
-uvicorn[standard]==0.38.0
-pydantic==2.12.5
-pydantic-settings==2.12.0
-python-multipart==0.0.6
+# Runtime dependencies for the active FastAPI + Gemini stack.
+# Keep this file as the single source of truth for backend runtime packages.
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-multipart==0.0.32
 httpx==0.28.1
-PyPDF2==4.0.1
-python-docx==0.8.11
-
-langchain
-langchain-openai
-langchain-core
-langchain-google-genai
-langgraph==0.0.60
-langgraph-checkpoint==0.0.6
-langgraph-sdk==0.0.6
-
-streamlit==1.52.1
-requests==2.32.5
-
 python-dotenv==1.2.1
 typing-extensions==4.15.0
+honcho==2.0.0
 
+# LangChain / Gemini / LangGraph
+langchain-core==1.6.1
+langchain-google-genai==4.4.0
+langgraph==1.2.11
+langgraph-checkpoint==4.2.0
+
+# Document processing
+pypdf==6.17.0
+python-docx==1.2.0
+sympy==1.14.0
+reportlab==4.4.9
+matplotlib==3.10.6
+
+# Test tooling
 pytest==7.4.4
 pytest-asyncio==0.23.2
 pytest-cov==4.1.0
-langchain-groq
-
-# Document Processing
-PyPDF2==4.0.1
-python-docx==0.8.11
-pypdf2

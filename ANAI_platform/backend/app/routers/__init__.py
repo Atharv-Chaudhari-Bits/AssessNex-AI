@@ -1,8 +1,5 @@
-"""
-Routers package initialization.
+"""Active FastAPI routers."""
 
-Exports all API router instances.
-"""
+from backend.app.routers import documents, evaluation, health, papers_enhanced, plagiarism, questions
 
-from backend.app.routers import health, questions, plagiarism, papers_enhanced, documents, rag
-__all__ = ["health", "questions", "plagiarism", "papers_enhanced", "documents", "rag"]
+__all__ = ["health", "questions", "plagiarism", "papers_enhanced", "documents", "evaluation"]

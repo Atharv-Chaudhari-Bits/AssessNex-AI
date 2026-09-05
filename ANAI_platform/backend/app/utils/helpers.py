@@ -280,6 +280,16 @@ def parse_llm_response(response_text: str) -> Any:
         return {"raw_response": response_text, "parse_error": str(e)}
 
 
+def normalize_latex_delimiters(text: str) -> str:
+    """Normalize common LaTeX delimiters emitted by LLMs."""
+    if not text:
+        return text
+    import re
+    text = text.replace("\\[", "$$").replace("\\]", "$$")
+    text = text.replace("\\(", "$").replace("\\)", "$")
+    return text
+
+
 def fix_latex_backslashes(text: str) -> str:
     """
     Fix LaTeX backslashes that may have been corrupted during JSON parsing.
@@ -299,6 +309,7 @@ def fix_latex_backslashes(text: str) -> str:
         return text
     
     import re
+    text = normalize_latex_delimiters(text)
     
     # CRITICAL FIX: Direct replacement for TAB + suffix patterns
     # When JSON parses \times, the \t becomes a TAB character, leaving TAB + "imes"
@@ -361,6 +372,8 @@ def fix_question_latex(question: Dict[str, Any]) -> Dict[str, Any]:
         Question with fixed LaTeX
     """
     text_fields = ['question_text', 'expected_answer', 'explanation']
+    if isinstance(question.get('options'), list):
+        question['options'] = [fix_latex_backslashes(str(option)) for option in question['options']]
     
     for field in text_fields:
         if question.get(field):

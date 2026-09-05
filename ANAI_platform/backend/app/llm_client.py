@@ -1,402 +1,228 @@
-"""
-LLM client module for AssessNex AI.
+"""Single LLM gateway for AssessNex AI.
 
-This module handles the initialization and interaction with multiple LLM providers:
-- Azure OpenAI
-- Google AI (Gemini)
-- Grok LLM
-
-Uses the LangChain library for unified interface across providers.
+Gemini is the active provider. Legacy providers are deliberately disabled by
+configuration flags and are not imported unless explicitly enabled.
 """
-from typing import Dict, Any
-import time
+
+import json
 import random
+import time
 from functools import wraps
-from typing import Optional, List, Union
-from langchain_core.messages import SystemMessage, HumanMessage
+from typing import Any, Dict, Iterator, List, Optional
+
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from backend.app.config import get_settings
 from backend.app.utils.logger import get_logger
-
 
 logger = get_logger(__name__)
 
 
-def retry_with_backoff(max_retries: int = 5, min_wait: int = 60, max_wait: int = 300):
-    """
-    Decorator to retry a function with exponential backoff for rate limiting (429) and other transient errors.
-    
-    Args:
-        max_retries: Maximum number of retry attempts (default: 5)
-        min_wait: Minimum wait time in seconds (default: 60 = 1 minute)
-        max_wait: Maximum wait time in seconds (default: 300 = 5 minutes)
-    """
+def retry_with_backoff(max_retries: int, min_wait: float, max_wait: float):
+    """Retry only transient/rate-limit failures with bounded exponential backoff."""
+
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
             last_exception = None
-            
             for attempt in range(max_retries + 1):
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
-                    error_str = str(e)
-                    last_exception = e
-                    
-                    # Check if it's a rate limiting error or transient error
-                    is_rate_limit = "429" in error_str or "rate" in error_str.lower() or "tpm" in error_str.lower() or "rpm" in error_str.lower()
-                    is_transient = any(code in error_str for code in ["500", "502", "503", "504"])
-                    
-                    if not (is_rate_limit or is_transient) or attempt == max_retries:
+                except Exception as exc:
+                    last_exception = exc
+                    text = str(exc).lower()
+                    transient = any(code in text for code in ("429", "500", "502", "503", "504"))
+                    transient = transient or any(term in text for term in ("rate limit", "temporarily", "timeout"))
+                    if not transient or attempt >= max_retries:
                         raise
-                    
-                    # Calculate backoff with exponential increase and jitter
-                    base_wait = min(min_wait * (2 ** attempt), max_wait)
-                    jitter = random.uniform(0, base_wait * 0.1)  # Add up to 10% jitter
-                    wait_time = base_wait + jitter
-                    
+
+                    wait = min(max_wait, min_wait * (2**attempt))
+                    wait += random.uniform(0, wait * 0.1)
                     logger.warning(
-                        f"Rate limit or transient error in {func.__name__} (attempt {attempt + 1}/{max_retries + 1}). "
-                        f"Error: {error_str}. Retrying in {wait_time:.1f} seconds..."
+                        "%s failed (attempt %s/%s); retrying in %.1fs: %s",
+                        func.__name__, attempt + 1, max_retries + 1, wait, exc,
                     )
-                    
-                    time.sleep(wait_time)
-            
-            raise last_exception
+                    time.sleep(wait)
+            raise last_exception  # pragma: no cover
+
         return wrapper
+
     return decorator
 
 
 class LLMClient:
-    """
-    Client for interacting with multiple LLM providers.
-
-    This class encapsulates all LLM operations including initialization,
-    message generation, and error handling for OpenAI, Google Gemini, and Grok.
-    """
+    """Thread-safe-enough process singleton around the configured LangChain model."""
 
     _instance: Optional["LLMClient"] = None
 
     def __new__(cls):
-        """
-        Singleton pattern to ensure only one LLM client instance.
-
-        Returns:
-            LLMClient: Singleton instance
-        """
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
 
     def __init__(self):
-        """Initialize the LLM client based on configured provider."""
         if self._initialized:
             return
 
         settings = get_settings()
-        provider = settings.LLM_PROVIDER.lower()
-
-        logger.info(f"Initializing LLM Client with provider: {provider}")
-
-        try:
-            if provider == "openai":
-                self._init_openai(settings)
-            elif provider == "google":
-                self._init_google(settings)
-            elif provider == "grok":
-                self._init_grok(settings)
-            elif provider == "groq":
-                self._init_groq(settings)
-            else:
-                raise ValueError(f"Unsupported LLM provider: {provider}")
-
-            self.settings = settings
-            self.provider = provider
-            self._initialized = True
-
-            logger.info(f"{provider.upper()} LLM Client initialized successfully")
-
-        except Exception as e:
-            logger.error(f"Failed to initialize LLM Client: {str(e)}")
-            raise
-
-    def create_completion(  # Remove 'async' keyword
-        self,
-        messages: List[Dict[str, str]],
-        temperature: float = 0.7,
-        max_tokens: int = 2000,
-        response_format: Optional[Dict[str, str]] = None
-    ) -> Dict[str, Any]:
-        """
-        Create a completion using the LLM with message list format.
-        """
-        try:
-            logger.info(f"Creating completion with {len(messages)} messages")
-            
-            # Extract system message if present
-            system_message = None
-            user_prompt = ""
-            
-            for msg in messages:
-                if msg["role"] == "system":
-                    system_message = msg["content"]
-                elif msg["role"] == "user":
-                    user_prompt = msg["content"]
-            
-            # Add JSON instruction if response_format is specified
-            if response_format and response_format.get("type") == "json_object":
-                if system_message:
-                    system_message += "\n\nIMPORTANT: Your response MUST be valid JSON format only, no other text, explanations, or markdown."
-                else:
-                    system_message = "IMPORTANT: Your response MUST be valid JSON format only, no other text, explanations, or markdown."
-            
-            # Generate the response using your existing generate_message method
-            content = self.generate_message(
-                prompt=user_prompt,
-                system_message=system_message
+        provider = settings.LLM_PROVIDER.strip().lower()
+        if provider != "google":
+            raise RuntimeError(
+                f"Unsupported active LLM provider '{provider}'. "
+                "AssessNex AI is currently configured for Gemini only."
             )
-            
-            # For JSON format, try to clean the response if needed
-            if response_format and response_format.get("type") == "json_object":
-                # Remove any markdown code blocks if present
-                if content.startswith('```json'):
-                    content = content[7:]
-                elif content.startswith('```'):
-                    content = content[3:]
-                if content.endswith('```'):
-                    content = content[:-3]
-                content = content.strip()
-            
-            logger.info(f"Successfully created completion, response length: {len(content)}")
-            
-            return {
-                "content": content,
-                "model": getattr(self, 'model', 'unknown'),
-                "usage": {
-                    "total_tokens": len(content.split()) + len(user_prompt.split())
-                },
-                "finish_reason": "stop"
-            }
-            
-        except Exception as e:
-            logger.error(f"Error in create_completion: {str(e)}", exc_info=True)
-            raise
+        if not settings.ENABLE_PROVIDER_GEMINI:
+            raise RuntimeError("Gemini provider is disabled (ENABLE_PROVIDER_GEMINI=false).")
+        if not settings.GOOGLE_API_KEY:
+            raise ValueError("GOOGLE_API_KEY is required when Gemini is enabled.")
 
-    def _init_openai(self, settings):
-        """Initialize Azure OpenAI client."""
-        from langchain_openai import AzureChatOpenAI
-        
-        if not settings.AZURE_OPENAI_API_KEY or not settings.AZURE_OPENAI_ENDPOINT:
-            raise ValueError("Azure OpenAI API key and endpoint are required")
-
-        self.llm = AzureChatOpenAI(
-            api_key=settings.AZURE_OPENAI_API_KEY,
-            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
-            azure_deployment=settings.AZURE_DEPLOYMENT,
-            api_version=settings.AZURE_API_VERSION,
-            max_retries=settings.LLM_MAX_RETRIES,
-            temperature=settings.LLM_TEMPERATURE,
-            max_tokens=settings.LLM_MAX_TOKENS,
-        )
-
-    def _init_google(self, settings):
-        """Initialize Google Gemini client."""
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
-        except ImportError:
-            logger.error("langchain-google-genai is not installed")
+        except ImportError as exc:
             raise ImportError(
-                "Please install langchain-google-genai: pip install langchain-google-genai"
-            )
-        
-        if not settings.GOOGLE_API_KEY:
-            raise ValueError("Google API key is required for Google Gemini")
+                "Gemini support requires langchain-google-genai."
+            ) from exc
 
         self.llm = ChatGoogleGenerativeAI(
             model=settings.GOOGLE_MODEL,
             google_api_key=settings.GOOGLE_API_KEY,
             temperature=settings.LLM_TEMPERATURE,
             max_tokens=settings.LLM_MAX_TOKENS,
+            timeout=settings.REQUEST_TIMEOUT,
+            max_retries=0,
         )
+        self.settings = settings
+        self.provider = "google"
+        self.model = settings.GOOGLE_MODEL
+        self.fallback_model = settings.GOOGLE_FALLBACK_MODEL.strip()
+        self._fallback_llm = None
+        self._initialized = True
+        logger.info("Initialized Gemini provider: %s", self.model)
 
-    def _init_grok(self, settings):
-        """Initialize Grok LLM client."""
+    @staticmethod
+    def _content(response: Any) -> str:
+        content = getattr(response, "content", response)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, dict) and "text" in item:
+                    parts.append(str(item["text"]))
+                else:
+                    parts.append(str(item))
+            return "".join(parts)
+        return str(content)
+
+    @staticmethod
+    def _strip_json_fence(content: str) -> str:
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1] if "\n" in content else content[3:]
+            if content.rstrip().endswith("```"):
+                content = content.rstrip()[:-3]
+        return content.strip()
+
+    @retry_with_backoff(3, 2.0, 30.0)
+    def _invoke(self, messages: List[Any]) -> str:
         try:
-            from langchain_openai import ChatOpenAI
-        except ImportError:
-            logger.error("langchain-openai is not installed")
-            raise ImportError(
-                "Please install langchain-openai: pip install langchain-openai"
-            )
-        
-        if not settings.GROK_API_KEY:
-            raise ValueError("Grok API key is required")
-
-        # Grok uses OpenAI-compatible API
-        self.llm = ChatOpenAI(
-            model=settings.GROK_MODEL,
-            api_key=settings.GROK_API_KEY,
-            base_url="https://api.x.ai/v1",  # Grok API endpoint
-            max_retries=settings.LLM_MAX_RETRIES,
-            temperature=settings.LLM_TEMPERATURE,
-            max_tokens=settings.LLM_MAX_TOKENS,
-        )
-
-    def _init_groq(self, settings):
-        """Initialize Groq LLM client."""
-        try:
-            from langchain_groq import ChatGroq
-        except ImportError:
-            logger.error("langchain-groq is not installed")
-            raise ImportError(
-                "Please install langchain-groq: pip install langchain-groq"
-            )
-        
-        if not settings.GROQ_API_KEY:
-            raise ValueError("Groq API key is required")
-
-        self.llm = ChatGroq(
-            model=settings.GROQ_MODEL,
-            api_key=settings.GROQ_API_KEY,
-            max_retries=settings.LLM_MAX_RETRIES,
-            temperature=settings.LLM_TEMPERATURE,
-            max_tokens=settings.LLM_MAX_TOKENS,
-        )
+            response = self.llm.invoke(messages)
+            return self._content(response).strip()
+        except Exception as exc:
+            # Optional production fallback, controlled entirely by an env variable.
+            # It is only used after the primary model fails; normal traffic stays on GOOGLE_MODEL.
+            if not self.fallback_model or self.fallback_model == self.model:
+                raise
+            try:
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                if self._fallback_llm is None:
+                    self._fallback_llm = ChatGoogleGenerativeAI(
+                        model=self.fallback_model, google_api_key=self.settings.GOOGLE_API_KEY,
+                        temperature=self.settings.LLM_TEMPERATURE, max_tokens=self.settings.LLM_MAX_TOKENS,
+                        timeout=self.settings.REQUEST_TIMEOUT, max_retries=0,
+                    )
+                logger.warning("Primary Gemini model %s failed; using fallback model %s: %s", self.model, self.fallback_model, exc)
+                response = self._fallback_llm.invoke(messages)
+                return self._content(response).strip()
+            except Exception:
+                raise exc
 
     def generate_message(self, prompt: str, system_message: Optional[str] = None) -> str:
-        """
-        Generate a message from the LLM with automatic retry on rate limits.
+        """Generate plain text from Gemini."""
+        if not prompt or not prompt.strip():
+            raise ValueError("prompt must not be empty")
 
-        Args:
-            prompt: Input prompt for the LLM
-            system_message: Optional system message to set context/role for the LLM
+        messages: List[Any] = []
+        if system_message:
+            messages.append(SystemMessage(content=system_message))
+        messages.append(HumanMessage(content=prompt))
+        return self._invoke(messages)
 
-        Returns:
-            str: Generated message
+    def create_completion(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        response_format: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Compatibility method used by existing agents."""
+        if not messages:
+            raise ValueError("messages must not be empty")
 
-        Raises:
-            Exception: If generation fails after all retries
-        """
-        @retry_with_backoff(max_retries=5, min_wait=60, max_wait=300)
-        def _generate():
-            logger.debug(f"Generating message with prompt: {prompt[:100]}...")
-            
-            # Build messages list
-            messages = []
-            if system_message:
-                messages.append(SystemMessage(content=system_message))
-            messages.append(HumanMessage(content=prompt))
-            
-            # Use invoke with messages if system message is provided
-            if system_message:
-                response = self.llm.invoke(messages)
-            else:
-                response = self.llm.invoke(prompt)
+        system_parts = [m["content"] for m in messages if m.get("role") == "system"]
+        user_parts = [m["content"] for m in messages if m.get("role") in {"user", "human"}]
+        system_message = "\n\n".join(system_parts) or None
+        prompt = "\n\n".join(user_parts)
 
-            if hasattr(response, "content"):
-                result = response.content
-            else:
-                result = str(response)
+        if response_format and response_format.get("type") == "json_object":
+            instruction = "Return ONLY valid JSON. Do not use Markdown fences or commentary."
+            system_message = f"{system_message}\n\n{instruction}" if system_message else instruction
 
-            logger.debug(f"LLM response generated successfully")
-            return result
-        
-        try:
-            return _generate()
-        except Exception as e:
-            logger.error(f"Error generating LLM message after retries: {str(e)}")
-            raise
+        # Per-call generation settings are intentionally not mutated on the shared model.
+        del temperature, max_tokens
+        content = self.generate_message(prompt, system_message)
+        if response_format and response_format.get("type") == "json_object":
+            content = self._strip_json_fence(content)
+            json.loads(content)  # Fail fast rather than pretending a string is valid JSON.
 
-    def generate_json_message(self, prompt: str) -> str:
-        """
-        Generate a JSON-formatted message from the LLM with automatic retry on rate limits.
+        return {
+            "content": content,
+            "model": self.model,
+            "usage": {},
+            "finish_reason": "stop",
+        }
 
-        Args:
-            prompt: Input prompt for the LLM (should request JSON format)
+    def generate_json_message(self, prompt: str, system_message: Optional[str] = None) -> str:
+        """Generate and validate a JSON object/array response."""
+        system = system_message or ""
+        system = f"{system}\n\nReturn ONLY valid JSON. No Markdown fences or commentary."
+        content = self.generate_message(prompt, system)
+        content = self._strip_json_fence(content)
+        json.loads(content)
+        return content
 
-        Returns:
-            str: JSON formatted response
-
-        Raises:
-            Exception: If generation or parsing fails after all retries
-        """
-        @retry_with_backoff(max_retries=5, min_wait=60, max_wait=300)
-        def _generate_json():
-            logger.debug("Generating JSON message from LLM")
-            response = self.generate_message(prompt)
-            return response
-        
-        try:
-            return _generate_json()
-        except Exception as e:
-            logger.error(f"Error generating JSON message after retries: {str(e)}")
-            raise
-
-    def stream_message(self, prompt: str):
-        """
-        Stream a message from the LLM with automatic retry on rate limits.
-
-        Args:
-            prompt: Input prompt for the LLM
-
-        Yields:
-            str: Chunks of the generated message
-
-        Raises:
-            Exception: If streaming fails after all retries
-        """
-        @retry_with_backoff(max_retries=5, min_wait=60, max_wait=300)
-        def _stream():
-            logger.debug("Starting message stream")
-            chunks = []
-            
-            for chunk in self.llm.stream(prompt):
-                if hasattr(chunk, "content"):
-                    chunks.append(chunk.content)
-                else:
-                    chunks.append(str(chunk))
-            
-            return chunks
-        
-        try:
-            for chunk in _stream():
-                yield chunk
-        except Exception as e:
-            logger.error(f"Error streaming message after retries: {str(e)}")
-            raise
+    def stream_message(self, prompt: str) -> Iterator[str]:
+        """Stream Gemini output without wrapping the stream in a long blocking retry."""
+        if not prompt or not prompt.strip():
+            raise ValueError("prompt must not be empty")
+        for chunk in self.llm.stream(prompt):
+            text = self._content(chunk)
+            if text:
+                yield text
 
     def is_available(self) -> bool:
-        """
-        Check if LLM is available and responsive with automatic retry on rate limits.
-
-        Returns:
-            bool: True if LLM is available, False otherwise
-        """
-        @retry_with_backoff(max_retries=3, min_wait=60, max_wait=300)
-        def _check_availability():
-            logger.debug("Checking LLM availability")
-            self.generate_message("Say 'OK' in one word.")
-            logger.info("LLM is available")
-            return True
-        
+        """Return configuration availability without making a billable model call."""
         try:
-            return _check_availability()
-        except Exception as e:
-            logger.error(f"LLM availability check failed: {str(e)}")
+            return bool(
+                self.provider == "google"
+                and self.settings.ENABLE_PROVIDER_GEMINI
+                and self.settings.GOOGLE_API_KEY
+            )
+        except Exception:
             return False
 
 
 def get_llm_client() -> LLMClient:
-    """
-    Get the singleton LLM client instance.
-
-    Returns:
-        LLMClient: LLM client instance
-
-    Example:
-        >>> from backend.app.llm_client import get_llm_client
-        >>> client = get_llm_client()
-        >>> response = client.generate_message("Hello")
-    """
+    """Return the process-wide LLM client."""
     return LLMClient()
-

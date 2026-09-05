@@ -15,26 +15,15 @@ import json
 import random
 import hashlib
 from datetime import datetime
-from typing import Dict, List, Any, Optional, TypedDict, Annotated, Union
+from typing import Dict, List, Any, Optional, TypedDict, Annotated, Union, Callable, Awaitable
 from dataclasses import dataclass, field
 from enum import Enum
 import operator
 
-from langchain_openai import AzureChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
-# Replace this:
 from langgraph.graph import StateGraph, END
-
-# With this:
-try:
-    from langgraph.graph import StateGraph, END
-except ImportError:
-    from langgraph.graph import StateGraph, END as EndNode
-    END = EndNode
 
 from langgraph.checkpoint.memory import MemorySaver
 
-from backend.app.config import settings
 from backend.app.utils.logger import get_logger
 from backend.app.agents.question_generator import QuestionGenerationAgent
 from backend.app.schemas.bloom_taxonomy import (
@@ -46,7 +35,8 @@ from backend.app.utils.explainability import (
     get_explainability_logger, GenerationDecision, DecisionType
 )
 from backend.app.utils.metrics import get_metrics_calculator
-from pydantic import BaseModel, field_validator
+from backend.app.utils.quality import evaluate_paper
+from backend.app.config import get_settings
 
 logger = get_logger(__name__)
 
@@ -75,7 +65,7 @@ class PaperState(TypedDict):
     total_marks: int
     duration_minutes: int
     exam_name: str
-    instructions: Optional[Union[str, List[str]]] = None
+    instructions: Optional[List[str]] = None
     diversity_seed: str
     
     # Processing state
@@ -92,19 +82,11 @@ class PaperState(TypedDict):
     # Validation and metrics
     validation_results: List[Dict]
     metrics_results: Dict
+    quality_results: Dict
     
     # Output
     paper: Optional[Dict]
     status: str
-
-    @field_validator("instructions", mode="before")
-    @classmethod
-    def normalize_instructions(cls, v):
-        if v is None:
-            return []
-        if isinstance(v, str):
-            return [v]          # 👈 STRING → LIST
-        return v
 
 class QuestionPaperAgent:
     """
@@ -125,14 +107,6 @@ class QuestionPaperAgent:
         self.validator = get_validator()
         self.explainability_logger = get_explainability_logger()
         self.metrics_calculator = get_metrics_calculator()
-        self.llm = AzureChatOpenAI(
-            api_key=settings.AZURE_OPENAI_API_KEY,
-            api_version=settings.AZURE_API_VERSION,
-            azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
-            azure_deployment=settings.AZURE_DEPLOYMENT,
-            temperature=0.7,
-            max_tokens=2048,
-        )
         self.memory = MemorySaver()
         self.workflow = self._build_workflow()
         
@@ -193,6 +167,7 @@ class QuestionPaperAgent:
         workflow.add_node("validate_questions", self._validate_questions_node)
         workflow.add_node("generate_answer_key", self._generate_answer_key_node)
         workflow.add_node("evaluate_metrics", self._evaluate_metrics_node)
+        workflow.add_node("quality_gate", self._quality_gate_node)
         workflow.add_node("finalize", self._finalize_node)
         
         workflow.set_entry_point("initialize")
@@ -213,7 +188,8 @@ class QuestionPaperAgent:
         
         workflow.add_edge("validate_questions", "generate_answer_key")
         workflow.add_edge("generate_answer_key", "evaluate_metrics")
-        workflow.add_edge("evaluate_metrics", "finalize")
+        workflow.add_edge("evaluate_metrics", "quality_gate")
+        workflow.add_edge("quality_gate", "finalize")
         workflow.add_edge("finalize", END)
         
         return workflow.compile(checkpointer=self.memory)
@@ -336,8 +312,18 @@ class QuestionPaperAgent:
         q_type = config.get("type", "Multiple Choice")
         num_questions = config.get("count", 5)
         difficulty = config.get("difficulty", "medium")
+        if str(difficulty).lower() == "mixed":
+            target = state.get("difficulty_distribution", {}) or {}
+            assigned = {"easy": 0, "medium": 0, "hard": 0}
+            for existing_section in state.get("sections", []):
+                for existing_question in existing_section.get("questions", []):
+                    level = str(existing_question.get("difficulty_level", existing_question.get("difficulty", ""))).lower()
+                    if level in assigned:
+                        assigned[level] += 1
+            target_total = max(1, sum(int(v) for v in target.values()))
+            difficulty = max(assigned.keys(), key=lambda level: (float(target.get(level.title(), target.get(level, 0))) / target_total) * max(sum(c.get("count", 0) for c in question_configs), 1) - assigned[level])
         
-        logger.info(f"Generating section {current_idx + 1}: {q_type} ({num_questions} questions)")
+        logger.info(f"Generating section {current_idx + 1}: {q_type} ({num_questions} questions, difficulty={difficulty})")
         
         # Determine Bloom levels for this section
         allowed_bloom_levels = QUESTION_TYPE_BLOOM_MAPPING.get(q_type, [])
@@ -359,7 +345,16 @@ class QuestionPaperAgent:
             # Enrich with Bloom level and metadata
             for j, q in enumerate(questions):
                 # Assign Bloom level based on difficulty and question type
-                bloom_level = self._select_bloom_level(difficulty, allowed_bloom_levels, j, num_questions)
+                assigned_counts = {}
+                for existing_section in state.get("sections", []):
+                    for existing_question in existing_section.get("questions", []):
+                        level = existing_question.get("bloom_level")
+                        if level:
+                            assigned_counts[level] = assigned_counts.get(level, 0) + 1
+                bloom_level = self._select_bloom_level(
+                    difficulty, allowed_bloom_levels, j, num_questions,
+                    target_distribution=bloom_distribution, assigned_counts=assigned_counts
+                )
                 
                 q["question_number"] = question_number
                 q["marks"] = config.get("marks_each", 2)
@@ -524,15 +519,48 @@ class QuestionPaperAgent:
             "messages": [{"role": "assistant", "content": "Paper metrics evaluated"}]
         }
 
+    async def _quality_gate_node(self, state: PaperState) -> Dict:
+        """Run deterministic quality, duplicate and math checks after AI generation."""
+        if not get_settings().ENABLE_QUALITY_CHECK:
+            return {"current_step": "quality_gate_skipped", "messages": [{"role": "assistant", "content": "Quality gate disabled by configuration"}]}
+        report = evaluate_paper(state.get("sections", []))
+        logger.info("Quality gate: %.1f/100, passed=%s, issues=%s", report["overall_score"], report["passed"], report["issues_count"])
+        return {
+            "quality_results": report,
+            "current_step": "quality_gate_complete",
+            "messages": [{"role": "assistant", "content": f"Quality gate complete: {report['overall_score']}/100"}],
+        }
+
     async def _finalize_node(self, state: PaperState) -> Dict:
         """Finalize the question paper"""
         logger.info("Finalizing question paper")
         
         # Construct final paper
+        header = state.get("header_info", {})
+        answer_key = header.get("answer_key", [])
+        sections = state.get("sections", [])
+        blueprint = {
+            "total_marks": state.get("total_marks", 0),
+            "duration_minutes": state.get("duration_minutes", 0),
+            "difficulty_distribution": state.get("difficulty_distribution", {}),
+            "bloom_distribution": state.get("bloom_distribution", {}),
+            "sections": [
+                {
+                    "section_id": sec.get("section_id"),
+                    "title": sec.get("title"),
+                    "question_type": sec.get("question_type"),
+                    "questions": len(sec.get("questions", [])),
+                    "marks": sum(q.get("marks", 0) for q in sec.get("questions", [])),
+                } for sec in sections
+            ],
+        }
         paper = {
             "paper_id": f"paper_{datetime.utcnow().isoformat()}",
-            "header": state.get("header_info", {}),
-            "sections": state.get("sections", []),
+            "header": header,
+            "answer_key": answer_key,
+            "blueprint": blueprint,
+            "sections": sections,
+            "quality_results": state.get("quality_results", {}),
             "validation_summary": {
                 "total_validations": len(state.get("validation_results", [])),
                 "metrics": state.get("metrics_results", {})
@@ -560,41 +588,46 @@ class QuestionPaperAgent:
             "status": "completed"
         }
 
-    def _select_bloom_level(self, difficulty: str, allowed_levels: List[str], position: int, total: int) -> str:
-        """
-        Select appropriate Bloom level for a question.
-        
-        Args:
-            difficulty: Base difficulty level
-            allowed_levels: List of allowed Bloom levels for this question type
-            position: Position of question in section
-            total: Total questions in section
-            
-        Returns:
-            str: Selected Bloom level
-        """
-        # Simple distribution: early questions easier, later questions harder
+    def _select_bloom_level(
+        self,
+        difficulty: str,
+        allowed_levels: List[str],
+        position: int,
+        total: int,
+        target_distribution: Optional[Dict[str, int]] = None,
+        assigned_counts: Optional[Dict[str, int]] = None,
+    ) -> str:
+        """Select a Bloom level while respecting the requested distribution."""
+        allowed_levels = allowed_levels or [BloomLevel.APPLY.value]
+        target_distribution = target_distribution or {}
+        assigned_counts = assigned_counts or {}
+
+        if target_distribution:
+            total_target = max(1, sum(max(0, int(v)) for v in target_distribution.values()))
+            total_questions = max(1, sum(1 for _ in range(position + 1)))
+            # Pick the allowed level with the largest proportional deficit.
+            def deficit(level: str) -> float:
+                target = (float(target_distribution.get(level, 0)) / total_target) * max(total, 1)
+                actual = float(assigned_counts.get(level, 0))
+                return target - actual
+            best = max(allowed_levels, key=deficit)
+            if deficit(best) > -1.0:
+                return best
+
+        # Fallback: preserve the existing difficulty-aware progression.
         if position < total * 0.3:
-            # First 30%: lower Bloom levels
             filtered = [l for l in allowed_levels if l in [BloomLevel.REMEMBER.value, BloomLevel.UNDERSTAND.value]]
         elif position < total * 0.7:
-            # Middle 40%: medium Bloom levels
             filtered = [l for l in allowed_levels if l in [BloomLevel.UNDERSTAND.value, BloomLevel.APPLY.value]]
         else:
-            # Last 30%: higher Bloom levels
             filtered = [l for l in allowed_levels if l in [BloomLevel.ANALYZE.value, BloomLevel.EVALUATE.value, BloomLevel.CREATE.value]]
-        
-        # Fallback to allowed_levels if filtered is empty
         if not filtered:
             filtered = allowed_levels
-        
-        # Consider difficulty for finer adjustment
         if difficulty.lower() == "hard" and BloomLevel.CREATE.value in filtered:
             return BloomLevel.CREATE.value
-        elif difficulty.lower() == "easy" and BloomLevel.REMEMBER.value in filtered:
+        if difficulty.lower() == "easy" and BloomLevel.REMEMBER.value in filtered:
             return BloomLevel.REMEMBER.value
-        
-        return filtered[0] if filtered else allowed_levels[0] if allowed_levels else "Apply"
+        return filtered[0]
 
     def _get_section_instructions(self, question_type: str) -> str:
         """Get instructions for a section based on question type"""
@@ -659,7 +692,8 @@ class QuestionPaperAgent:
         bloom_distribution: Optional[Dict[str, int]] = None,
         exam_name: Optional[str] = None,
         subtopics: Optional[List[str]] = None,
-        instructions: Optional[List[str]] = None
+        instructions: Optional[List[str]] = None,
+        progress_callback: Optional[Callable[[str, int], Awaitable[None]]] = None,
     ) -> Dict:
         """
         Generate a complete question paper with advanced features.
@@ -725,6 +759,7 @@ class QuestionPaperAgent:
             "header_info": {},
             "validation_results": [],
             "metrics_results": {},
+            "quality_results": {},
             "paper": None,
             "status": "pending"
         }
@@ -734,10 +769,39 @@ class QuestionPaperAgent:
         config = {"configurable": {"thread_id": thread_id}}
         
         try:
-            # Run workflow
-            final_state = await self.workflow.ainvoke(initial_state, config)
-            
-            if final_state.get("paper"):
+            if progress_callback:
+                await progress_callback("Preparing the exam blueprint", 8)
+
+            final_state = None
+            # Stream node updates so a background job can report real generation stages.
+            async for update in self.workflow.astream(initial_state, config, stream_mode="updates"):
+                if progress_callback:
+                    node_names = list(update.keys()) if isinstance(update, dict) else []
+                    node = node_names[-1] if node_names else "working"
+                    stage_map = {
+                        "initialize": (12, "Preparing the exam blueprint"),
+                        "generate_header": (18, "Preparing paper header and instructions"),
+                        "plan_sections": (25, "Planning sections, marks and Bloom levels"),
+                        "generate_section": (60, "Generating questions with Gemini"),
+                        "validate_questions": (78, "Checking question quality and consistency"),
+                        "generate_answer_key": (88, "Building answer key and marking scheme"),
+                        "evaluate_metrics": (91, "Evaluating paper quality and balance"),
+                        "quality_gate": (95, "Running final quality and math checks"),
+                        "finalize": (98, "Finalizing the question paper"),
+                    }
+                    percent, message = stage_map.get(node, (50, "Generating the question paper"))
+                    await progress_callback(message, percent)
+                # LangGraph update chunks contain partial state; the final state is available
+                # through the last update by using the graph's state history is unnecessary here.
+                # Re-run a lightweight invoke is intentionally avoided; instead collect state.
+                if isinstance(update, dict):
+                    if final_state is None:
+                        final_state = dict(initial_state)
+                    for payload in update.values():
+                        if isinstance(payload, dict):
+                            final_state.update(payload)
+
+            if final_state and final_state.get("paper"):
                 logger.info(f"Paper generated: {final_state['paper'].get('paper_id')}")
                 return final_state["paper"]
             else:

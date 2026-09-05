@@ -2,7 +2,7 @@
 Agent module for question generation.
 
 This module implements the agentic AI logic for generating MTech level
-questions using Azure OpenAI and structured prompting.
+questions using Google Gemini and structured prompting.
 """
 
 import json
@@ -15,6 +15,7 @@ from backend.app.utils import (
     parse_llm_response,
     format_question_response,
     fix_question_latex,
+    attach_rendered_visual,
 )
 
 
@@ -25,7 +26,7 @@ class QuestionGenerationAgent:
     """
     Agent for generating MTech level questions.
 
-    This agent uses Azure OpenAI to generate high-quality, structured
+    This agent uses Google Gemini to generate high-quality, structured
     questions for various AI/ML subjects.
     """
 
@@ -166,6 +167,7 @@ Important Guidelines:
             
             # Fix any corrupted LaTeX backslashes (e.g., \text becoming extdepth)
             questions = [fix_question_latex(q) for q in questions]
+            questions = [attach_rendered_visual(q) for q in questions]
 
             logger.info(f"Successfully generated and formatted {len(questions)} questions")
             return questions
@@ -260,6 +262,12 @@ Important Guidelines:
                         tags=tags,
                     )
                     
+                    # Preserve structured metadata emitted by Gemini.
+                    if isinstance(question_data.get("content_flags"), dict):
+                        processed_question["content_flags"] = question_data["content_flags"]
+                    if isinstance(question_data.get("visual"), dict):
+                        processed_question["visual"] = question_data["visual"]
+
                     logger.debug(f"Processed question with difficulty={processed_question.get('difficulty_level')}")
                     questions.append(processed_question)
 

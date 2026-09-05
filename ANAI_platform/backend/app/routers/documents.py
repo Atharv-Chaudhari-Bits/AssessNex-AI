@@ -7,7 +7,7 @@ Handles document parsing and context-aware question generation.
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Request
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any, Callable
-import PyPDF2
+import pypdf
 import io
 import json
 from datetime import datetime
@@ -81,7 +81,7 @@ async def parse_pdf(file: UploadFile = File(...)) -> DocumentParseResponse:
         # Read PDF content
         pdf_content = await file.read()
         pdf_file = io.BytesIO(pdf_content)
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        pdf_reader = pypdf.PdfReader(pdf_file)
 
         # Extract text from all pages
         extracted_text = ""
@@ -546,6 +546,9 @@ class DocumentAssignmentRequest(BaseModel):
     description="Generate an assignment from document context using legacy method"
 )
 async def generate_assignment_from_document_legacy(request: DocumentAssignmentRequest):
+    if not get_settings().ENABLE_ASSIGNMENT_GENERATION:
+        raise HTTPException(status_code=503, detail="Assignment generation is disabled")
+
     """
     Generate assignment from document content using legacy method.
 
@@ -644,6 +647,9 @@ async def generate_assignment(
     bloom_distribution: Optional[str] = Query(None, description="Bloom's distribution JSON"),
     chat_context: Optional[str] = Query(None, description="Chat context"),
 ) -> Dict[str, Any]:
+    if not get_settings().ENABLE_ASSIGNMENT_GENERATION:
+        raise HTTPException(status_code=503, detail="Assignment generation is disabled")
+
     """
     Generate an assignment with Bloom's taxonomy support.
     """
@@ -688,6 +694,8 @@ async def generate_assignment(
         logger.info(f"Successfully generated assignment with {len(assignment.get('tasks', []))} tasks")
         return assignment
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Assignment generation error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -709,6 +717,9 @@ async def generate_assignment_from_document(
     chat_context: Optional[str] = Query(None, description="Chat context"),
     topic: Optional[str] = Query(None, description="Specific topic"),
 ) -> Dict[str, Any]:
+    if not get_settings().ENABLE_ASSIGNMENT_GENERATION:
+        raise HTTPException(status_code=503, detail="Assignment generation is disabled")
+
     """
     Generate an assignment from document context with Bloom's taxonomy.
     """

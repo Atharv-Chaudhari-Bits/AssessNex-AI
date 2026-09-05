@@ -14,6 +14,7 @@ from backend.app.schemas import (
     BatchPlagiarismCheckResponse,
 )
 from backend.app.utils import get_logger
+from backend.app.config import get_settings
 
 
 logger = get_logger(__name__)
@@ -64,6 +65,9 @@ async def check_plagiarism(
         }
     """
     try:
+        if not get_settings().ENABLE_PLAGIARISM_CHECK:
+            raise HTTPException(status_code=503, detail="Plagiarism checking is disabled")
+
         logger.info(
             f"Plagiarism check request for question: "
             f"{request.current_question.get('text', '')[:50]}..."
@@ -125,6 +129,9 @@ async def batch_check_plagiarism(
         }
     """
     try:
+        if not get_settings().ENABLE_PLAGIARISM_CHECK:
+            raise HTTPException(status_code=503, detail="Plagiarism checking is disabled")
+
         logger.info(
             f"Batch plagiarism check for {len(request.questions)} questions"
         )
@@ -216,6 +223,9 @@ async def calculate_similarity(
         }
     """
     try:
+        if not get_settings().ENABLE_PLAGIARISM_CHECK:
+            raise HTTPException(status_code=503, detail="Plagiarism checking is disabled")
+
         logger.debug("Calculating similarity score for two questions")
 
         # Get agent

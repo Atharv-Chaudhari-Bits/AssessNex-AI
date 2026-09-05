@@ -1,164 +1,136 @@
 import axios from 'axios'
 import config, { ENDPOINTS, makeMockUser } from '../config'
 
-const apiClient = axios.create({ 
-  baseURL: config.API_BASE || 'http://localhost:8000/api/v1',
-  timeout: 30000
+const apiClient = axios.create({
+  baseURL: config.API_BASE,
+  timeout: 120000,
+  headers: { Accept: 'application/json' }
 })
 
-export default {
+const withError = (error, operation) => {
+  const message = error?.response?.data?.detail || error?.message || `Failed to ${operation}`
+  const enriched = new Error(message)
+  enriched.status = error?.response?.status
+  enriched.cause = error
+  throw enriched
+}
+
+const mockAuth = (role, email, name) => ({
+  token: `demo-${role.toLowerCase()}-${Date.now()}`,
+  user: makeMockUser(role, email, name)
+})
+
+const api = {
   endpoints: ENDPOINTS,
+
   auth: {
-    login: async ({email, password, role, name}) => {
+    login: async ({ email, password, role, name }) => {
+      if (config.ENABLE_MOCK_AUTH) return { data: mockAuth(role, email, name) }
       try {
-        const response = await apiClient.post('/auth/login', {
-          email,
-          password,
-          role
-        })
-        return { data: { token: response.data.token || response.data.access_token, user: response.data.user || makeMockUser(role, email, name) } }
-      } catch (err) {
-        // Fallback to mock for development
-        const token = `mock-jwt-${role}-${Date.now()}`
-        return { data: { token, user: makeMockUser(role, email, name) } }
+        const response = await apiClient.post('/auth/login', { email, password, role })
+        return { data: { token: response.data.token || response.data.access_token, user: response.data.user } }
+      } catch (error) {
+        return withError(error, 'log in')
       }
     },
-    register: async ({name, email, password, role}) => {
+    register: async ({ name, email, password, role }) => {
+      if (config.ENABLE_MOCK_AUTH) return { data: mockAuth(role, email, name) }
       try {
-        const response = await apiClient.post('/auth/register', {
-          name,
-          email,
-          password,
-          role
-        })
-        return { data: { token: response.data.token || response.data.access_token, user: response.data.user || makeMockUser(role, email, name) } }
-      } catch (err) {
-        // Fallback to mock for development
-        const token = `mock-jwt-${role}-${Date.now()}`
-        return { data: { token, user: makeMockUser(role, email, name) } }
+        const response = await apiClient.post('/auth/register', { name, email, password, role })
+        return { data: { token: response.data.token || response.data.access_token, user: response.data.user } }
+      } catch (error) {
+        return withError(error, 'register')
       }
     },
     me: async (token) => {
       try {
-        const response = await apiClient.get('/auth/me', {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        return { data: { user: response.data.user } }
-      } catch (err) {
-        // Fallback to mock
-        const parts = token.split('-')
-        const role = parts[2] || 'Student'
-        return { data: { user: makeMockUser(role) } }
+        const response = await apiClient.get('/auth/me', { headers: { Authorization: `Bearer ${token}` } })
+        return { data: { user: response.data.user || response.data } }
+      } catch (error) {
+        if (config.ENABLE_MOCK_AUTH) return { data: { user: makeMockUser('Student') } }
+        return withError(error, 'load the current user')
       }
     }
   },
+
   upload: async (file) => {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const response = await apiClient.post('/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      })
+      const response = await apiClient.post('/documents/parse-pdf', formData)
       return { data: response.data }
-    } catch (err) {
-      // Fallback to mock
-      return { data: { id: Date.now(), name: file?.name || 'document.pdf', size: file?.size||12345, status: 'uploaded' } }
+    } catch (error) {
+      return withError(error, 'upload the document')
     }
   },
-  parse: async (fileId) => {
-    try {
-      const response = await apiClient.get(`/parse/${fileId}`)
-      return { data: response.data }
-    } catch (err) {
-      // Fallback to mock
-      return { data: { text: `Extracted text preview for file ${fileId}...\n1. What is X?\n2. Explain Y.\n3. Solve Z.` } }
-    }
-  },
-  generate: async ({docs, settings}) => {
-    try {
-      const response = await apiClient.post('/questions/generate', {
-        documents: docs,
-        ...settings
-      })
-      return { data: response.data }
-    } catch (err) {
-      // Fallback to mock
-      const questions = Array.from({length:5}).map((_,i)=>({ id: i+1, text: `Generated question ${i+1}`, difficulty: ['Easy','Medium','Hard'][i%3] }))
-      return { data: { questions } }
-    }
-  },
+
   questions: {
-    getInfo: async () => {
-      try {
-        const response = await apiClient.get('/questions/info')
-        return response.data
-      } catch (err) {
-        console.error('Failed to get question info:', err)
-        return {
-          question_types: ['Multiple Choice', 'Short Answer', 'Long Answer', 'Fill Blank', 'Code'],
-          subjects: ['Machine Learning', 'Data Science', 'Python', 'General']
-        }
-      }
-    },
-    generate: async (subject, type, difficulty, count, context = '') => {
+    generate: async (subject, questionType, difficultyLevel, count, context = '') => {
       try {
         const response = await apiClient.post('/questions/generate', {
           subject,
-          question_type: type,
-          difficulty_level: difficulty,
+          question_type: questionType,
+          difficulty_level: difficultyLevel,
           num_questions: count,
           additional_context: context
         })
-        return response.data
-      } catch (err) {
-        console.error('Failed to generate questions:', err)
-        throw err
+        return { data: response.data }
+      } catch (error) {
+        return withError(error, 'generate questions')
+      }
+    },
+    customized: async (topic, difficulty, bloomLevels, chatContext = '', questionType = 'Multiple Choice') => {
+      try {
+        const bloomLevel = Array.isArray(bloomLevels) ? bloomLevels[0] : bloomLevels
+        const response = await apiClient.post('/questions/customized', {
+          topic,
+          bloom_level: bloomLevel || 'Understand',
+          question_type: questionType,
+          chat_context: chatContext,
+          additional_context: difficulty ? `Requested difficulty: ${difficulty}` : null
+        })
+        return { data: response.data }
+      } catch (error) {
+        return withError(error, 'generate customized questions')
       }
     },
     getSubjects: async () => {
       try {
         const response = await apiClient.get('/questions/subjects')
-        return response.data.subjects || []
-      } catch (err) {
-        console.error('Failed to get subjects:', err)
-        return ['Machine Learning', 'Data Science', 'Python', 'General']
+        return { data: response.data }
+      } catch (error) {
+        return withError(error, 'load subjects')
       }
     },
-    getAll: async () => {
+    getInfo: async () => {
       try {
-        const response = await apiClient.get('/questions')
+        const response = await apiClient.get('/questions/info')
         return { data: response.data }
-      } catch (err) {
-        const q = Array.from({length:8}).map((_,i)=>({ id: i+1, text: `Sample question ${i+1}`, choices: [], answer: null }))
-        return { data: q }
+      } catch (error) {
+        return withError(error, 'load question information')
       }
     }
   },
+
   documents: {
     parsePdf: async (file) => {
       try {
         const formData = new FormData()
         formData.append('file', file)
-        const response = await apiClient.post('/documents/parse-pdf', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        })
+        const response = await apiClient.post('/documents/parse-pdf', formData)
         return response.data
-      } catch (err) {
-        console.error('Failed to parse PDF:', err)
-        throw err
+      } catch (error) {
+        return withError(error, 'parse the PDF')
       }
     },
     parseDocx: async (file) => {
       try {
         const formData = new FormData()
         formData.append('file', file)
-        const response = await apiClient.post('/documents/parse-docx', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        })
+        const response = await apiClient.post('/documents/parse-docx', formData)
         return response.data
-      } catch (err) {
-        console.error('Failed to parse DOCX:', err)
-        throw err
+      } catch (error) {
+        return withError(error, 'parse the DOCX')
       }
     },
     generateQuestions: async (documentText, prompt, subject, type, difficulty, count) => {
@@ -172,111 +144,27 @@ export default {
           num_questions: count
         })
         return response.data
-      } catch (err) {
-        console.error('Failed to generate questions from document:', err)
-        throw err
+      } catch (error) {
+        return withError(error, 'generate questions from the document')
       }
     },
     summarize: async (documentText) => {
       try {
-        const response = await apiClient.post('/documents/summarize', {
-          document_text: documentText
-        })
+        const response = await apiClient.post('/documents/summarize', { document_text: documentText })
         return response.data
-      } catch (err) {
-        console.error('Failed to summarize document:', err)
-        throw err
+      } catch (error) {
+        return withError(error, 'summarize the document')
       }
     },
     extractConcepts: async (documentText) => {
       try {
-        const response = await apiClient.post('/documents/extract-concepts', {
-          document_text: documentText
-        })
+        const response = await apiClient.post('/documents/extract-concepts', { document_text: documentText })
         return response.data
-      } catch (err) {
-        console.error('Failed to extract concepts:', err)
-        throw err
-      }
-    }
-  },
-  saveExam: async (payload) => {
-    try {
-      const response = await apiClient.post('/exams/save', payload)
-      return { data: response.data }
-    } catch (err) {
-      // Fallback to mock
-      return { data: { id: Date.now(), ...payload, status: 'saved' } }
-    }
-  },
-  sendEmail: async ({to, subject, body, attachment}) => {
-    try {
-      const response = await apiClient.post('/email/send', {
-        to,
-        subject,
-        body,
-        attachment
-      })
-      return { data: response.data }
-    } catch (err) {
-      // Fallback to mock
-      return { data: { status: 'sent', to, subject } }
-    }
-  },
-  student: {
-    questions: async (studentId) => {
-      try {
-        const response = await apiClient.get(`/student/${studentId}/questions`)
-        return { data: response.data }
-      } catch (err) {
-        // Fallback to mock
-        const q = Array.from({length:6}).map((_,i)=>({ id: i+1, text: `Practice question ${i+1}`, difficulty: ['Easy','Medium'][i%2] }))
-        return { data: q }
-      }
-    }
-  },
-  questions: {
-    generate: async (subject, questionType, difficulty, count, context) => {
-      try {
-        const response = await apiClient.post('/questions/generate', {
-          subject, question_type: questionType, difficulty, count, additional_context: context
-        })
-        return { data: response.data }
-      } catch (err) {
-        return { data: { questions: [] } }
-      }
-    },
-    customized: async (topic, difficulty, bloomLevels, chatContext, questionType = 'Multiple Choice') => {
-      try {
-        const params = new URLSearchParams({
-          topic,
-          difficulty,
-          bloom_levels: bloomLevels.join(','),
-          chat_context: chatContext,
-          question_type: questionType
-        })
-        const response = await apiClient.post(`/questions/customized?${params}`)
-        return { data: response.data }
-      } catch (err) {
-        console.error('Error generating customized question:', err)
-        return { data: { questions: [], error: err.message } }
-      }
-    },
-    getSubjects: async () => {
-      try {
-        const response = await apiClient.get('/questions/subjects')
-        return { data: response.data }
-      } catch (err) {
-        return { data: { subjects: [] } }
-      }
-    },
-    getInfo: async () => {
-      try {
-        const response = await apiClient.get('/questions/info')
-        return { data: response.data }
-      } catch (err) {
-        return { data: { question_types: [], difficulty_levels: [] } }
+      } catch (error) {
+        return withError(error, 'extract concepts')
       }
     }
   }
 }
+
+export default api

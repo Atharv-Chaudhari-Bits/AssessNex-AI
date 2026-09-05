@@ -1,0 +1,4 @@
+# Optional legacy Streamlit UI. Install only when
+# ENABLE_LEGACY_STREAMLIT_FRONTEND=true is intentionally used.
+streamlit==1.52.1
+requests==2.32.5

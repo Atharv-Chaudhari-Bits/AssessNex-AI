@@ -4,11 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "assessnex-ai"
-version = "1.0.0"
+version = "2.0.0"
 description = "AssessNex AI - Platform for generating AI/ML MTech level questions using Agentic AI"
-readme = "README.md"
+readme = "../README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
+
+dependencies = [
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.4",
+    "pydantic==2.13.5",
+    "pydantic-settings==2.15.0",
+    "python-multipart==0.0.32",
+    "httpx==0.28.1",
+    "python-dotenv==1.2.1",
+    "typing-extensions==4.15.0",
+    "langchain-core==1.6.1",
+    "langchain-google-genai==4.4.0",
+    "langgraph==1.2.11",
+    "langgraph-checkpoint==4.2.0",
+    "pypdf==6.17.0",
+    "python-docx==1.2.0",
+]
 
 authors = [
     {name = "AssessNex Team", email = "info@assessnex.ai"},
@@ -21,9 +38,8 @@ keywords = [
     "education",
     "mtech",
     "fastapi",
-    "streamlit",
-    "langchain",
-    "azure-openai",
+    "gemini",
+    "langgraph",
 ]
 
 classifiers = [
@@ -44,12 +60,13 @@ Documentation = "https://docs.assessnex.ai"
 Repository = "https://github.com/assessnex/ai"
 Issues = "https://github.com/assessnex/ai/issues"
 
-[tool.setuptools]
-packages = ["backend", "frontend"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["backend*"]
 
 [tool.black]
 line-length = 88
-target-version = ['py310', 'py311', 'py312']
+target-version = ['py311', 'py312', 'py313']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -75,7 +92,7 @@ ensure_newline_before_comments = true
 line_length = 88
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

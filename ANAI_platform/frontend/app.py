@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import streamlit.components.v1 as components
 from datetime import datetime
 import json
@@ -528,8 +528,11 @@ def render_text_with_math(text: str):
     if not text:
         return
     
-    # Fix escaped backslashes in LaTeX (e.g., \\text -> \text)
-    # This can happen during JSON serialization
+    # Normalize alternate LaTeX delimiters emitted by models.
+    text = text.replace("\\[", "$$").replace("\\]", "$$")
+    text = text.replace("\\(", "$").replace("\\)", "$")
+
+    # Fix escaped backslashes in LaTeX.
     text = text.replace('\\\\', '\\')
     
     # Fix corrupted LaTeX commands (e.g., TAB+imes -> \times)
@@ -1365,6 +1368,16 @@ def display_question(question: dict, index: int):
         # Render question text with formatting support
         question_text = question.get('question_text', 'N/A')
         render_content_with_formatting(question_text, q_type)
+
+        visual = question.get("visual")
+        if isinstance(visual, dict) and visual.get("image_base64"):
+            try:
+                import base64 as _base64
+                image_bytes = _base64.b64decode(visual["image_base64"])
+                st.image(image_bytes, caption=visual.get("title", "Generated visual"), use_container_width=True)
+            except Exception as exc:
+                logger.warning("Could not render generated visual: %s", exc)
+                st.warning("The visual could not be displayed, but the question text is still available.")
         st.write("")
         
         # Options with improved styling
@@ -1555,7 +1568,7 @@ st.markdown("""
 # TAB INTERFACE
 # ============================================================================
 
-tab1, tab2, tab3, tab4 = st.tabs([" Generate Questions", " Question Paper", " Assignment", " Customised Q&A"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs([" Generate Questions", " Question Paper", " Assignment", " Customised Q&A", " 🧾 Evaluate Paper"])
 
 
 # ============================================================================
@@ -1984,30 +1997,66 @@ with tab2:
     else:
         st.success("✅ Question type distribution valid")
 
-    question_type_config = []
+    # Per-section configuration: the values selected here are sent verbatim to the backend.
+    marks_each = max(1, total_marks // max(total_questions, 1))
+    st.markdown("#### ⚙️ Section Configuration")
+    active_types = [
+        ("Multiple Choice", mcq), ("Short Answer", short_ans), ("Long Answer", long_ans),
+        ("True/False", tf), ("Fill in the Blank", fill), ("Numerical Problem", numerical),
+        ("Code Implementation", code), ("Diagram-Based", diagram),
+    ]
+    section_settings = {}
+    for idx, (type_name, count) in enumerate(active_types):
+        if count <= 0:
+            continue
+        c1, c2 = st.columns(2)
+        with c1:
+            section_settings[type_name] = {
+                "difficulty": st.selectbox(
+                    f"{type_name} difficulty", ["mixed", "easy", "medium", "hard"],
+                    index=0,
+                    key=f"difficulty_{idx}",
+                )
+            }
+        with c2:
+            section_settings[type_name]["marks_each"] = st.number_input(
+                f"{type_name} marks each", min_value=1, max_value=max(1, total_marks),
+                value=max(1, marks_each), key=f"marks_each_{idx}"
+            )
 
-    def add_q(type_name, count, marks_each):
+    question_type_config = []
+    for type_name, count in active_types:
         if count > 0:
+            cfg = section_settings[type_name]
             question_type_config.append({
                 "type": type_name,
-                "count": count,
-                "marks_each": marks_each,
-                "difficulty": "medium",
-                "bloom_levels": ["Remember", "Understand", "Apply"]
+                "count": int(count),
+                "marks_each": int(cfg["marks_each"]),
+                "difficulty": cfg["difficulty"],
+                "bloom_levels": [],
             })
 
-    marks_each = max(1, total_marks // max(total_questions, 1))
-
-    add_q("Multiple Choice", mcq, marks_each)
-    add_q("Short Answer", short_ans, marks_each)
-    add_q("Long Answer", long_ans, marks_each)
-    add_q("True/False", tf, marks_each)
-    add_q("Fill in the Blank", fill, marks_each)
-    add_q("Numerical Problem", numerical, marks_each)
-    add_q("Code Implementation", code, marks_each)
-    add_q("Diagram-Based", diagram, marks_each)
+    configured_marks = sum(c["count"] * c["marks_each"] for c in question_type_config)
+    if configured_marks != total_marks:
+        st.warning(f"⚠️ Section marks total {configured_marks}, but paper total is {total_marks}. Adjust marks per question or Total Marks before generating.")
+    else:
+        st.success(f"✅ Section configuration matches {total_marks} total marks")
 
     st.divider()
+    st.markdown("#### 🧠 Bloom's Taxonomy Distribution")
+    bloom_defaults = {"Remember": 10, "Understand": 25, "Apply": 30, "Analyze": 20, "Evaluate": 10, "Create": 5}
+    bloom_distribution = {}
+    bloom_cols = st.columns(3)
+    for i, level in enumerate(bloom_defaults):
+        with bloom_cols[i % 3]:
+            bloom_distribution[level] = st.number_input(
+                level, min_value=0, max_value=100, value=bloom_defaults[level], step=5, key=f"bloom_{level}"
+            )
+    bloom_total = sum(bloom_distribution.values())
+    if bloom_total != 100:
+        st.warning(f"⚠️ Bloom distribution totals {bloom_total}%. It must total 100%.")
+    else:
+        st.success("✅ Bloom distribution totals 100%")
 
     # ---------------- Document-Based Generation ----------------
     st.markdown("### 📄 Document-Based Generation (Optional)")
@@ -2039,20 +2088,11 @@ with tab2:
         value="Answer all questions. Show all working where applicable."
     )
 
-    bloom_distribution = {
-        "Remember": 10,
-        "Understand": 25,
-        "Apply": 30,
-        "Analyze": 20,
-        "Evaluate": 10,
-        "Create": 5
-    }
-
     st.divider()
 
     # ---------------- Generate Button ----------------
     if st.button("🚀 Generate Paper", type="primary", use_container_width=True):
-        if diff_total != total_questions or type_total != total_questions:
+        if diff_total != total_questions or type_total != total_questions or configured_marks != total_marks or bloom_total != 100:
             st.error("❌ Fix distributions before generating paper")
         else:
             try:
@@ -2062,19 +2102,34 @@ with tab2:
                     "exam_name": paper_name,
                     "subject": paper_subject,
                     "topic": paper_topic or paper_name,
-                    "total_marks": total_marks,
-                    "duration_minutes": paper_duration,
+                    "total_marks": int(total_marks),
+                    "duration_minutes": int(paper_duration),
                     "question_type_config": question_type_config,
+                    "difficulty_distribution": difficulty_distribution,
                     "bloom_distribution": bloom_distribution,
-                    "instructions": paper_instructions
+                    "instructions": paper_instructions,
+                    "enable_validation": True,
+                    "enable_metrics": True,
+                    "enable_explainability": True,
                 }
 
-                response = client.generate_paper_with_payload(payload)
+                progress_bar = st.progress(0)
+                status_box = st.empty()
+                status_box.info("⏳ Starting paper generation…")
+
+                def update_paper_progress(message, progress):
+                    progress_bar.progress(max(0, min(100, int(progress))))
+                    status_box.info(f"🧠 {message}")
+
+                response = client.generate_paper_with_payload(
+                    payload,
+                    progress_callback=update_paper_progress,
+                )
 
                 paper_data = response.get("paper", response)
                 st.session_state.generated_paper = paper_data
-
-                st.success("✅ Paper generated successfully!")
+                progress_bar.progress(100)
+                status_box.success("✅ Question paper, answer key and quality checks are ready.")
                 st.balloons()
 
             except Exception as e:
@@ -2282,14 +2337,15 @@ with tab2:
                         "id": question.get("id", f"q_{total_questions}"),
                         "question_number": total_questions,
                         "question": question_text,
-                        "type": question.get("type", question_type),
+                        "type": question.get("type", question.get("question_type", question_type)),
                         "options": options,
                         "answer": answer,
                         "marks": question.get("marks", section.get("marks_per_question", 2)),
-                        "difficulty": question.get("difficulty", "medium"),
+                        "difficulty": question.get("difficulty", question.get("difficulty_level", "medium")),
                         "bloom_level": question.get("bloom_level", "Apply"),
                         "explanation": question.get("explanation", ""),
                         "topic": question.get("topic", paper.get("topic", "")),
+                        "visual": question.get("visual"),
                         "_original_data": {k: v for k, v in question.items() if k not in ["question", "options", "answer"]}
                     }
                     
@@ -2305,6 +2361,8 @@ with tab2:
                 "total_marks": paper.get("total_marks", total_marks),
                 "duration_minutes": paper.get("duration_minutes", paper_duration),
                 "instructions": paper.get("instructions", paper.get("header", {}).get("instructions", [])),
+                "answer_key": paper.get("answer_key", paper.get("header", {}).get("answer_key", [])),
+                "quality_results": paper.get("quality_results", {}),
                 "sections": transformed_sections,
                 "_metadata": {
                     "total_questions": total_questions,
@@ -2413,9 +2471,17 @@ with tab2:
                     st.info(f"No questions in {section_title}")
                 else:
                     for q in questions:
-                        # Display question
-                        st.markdown(f'<div class="question-text">Q{q["question_number"]}. {q["question"]}</div>', 
-                                unsafe_allow_html=True)
+                        # Display question with the same robust math/diagram renderer used elsewhere.
+                        st.markdown(f'<div class="question-text">Q{q["question_number"]}.</div>', unsafe_allow_html=True)
+                        render_content_with_formatting(q.get("question", ""), q.get("type", section.get("question_type", "")))
+
+                        visual = q.get("visual")
+                        if isinstance(visual, dict) and visual.get("image_base64"):
+                            try:
+                                import base64 as _base64
+                                st.image(_base64.b64decode(visual["image_base64"]), caption=visual.get("title", "Generated graph"), use_container_width=True)
+                            except Exception as exc:
+                                logger.warning("Could not display paper visual: %s", exc)
                         
                         # Display options for MCQ/TrueFalse
                         if q["type"] in ["Multiple Choice", "True/False"] and q.get("options"):
@@ -2465,6 +2531,26 @@ with tab2:
                         
                         st.markdown('<div class="question-divider"></div>', unsafe_allow_html=True)
         
+        # Teacher-facing answer key
+        answer_key = paper.get("answer_key", [])
+        if answer_key:
+            st.divider()
+            st.markdown("## 🔑 Answer Key & Marking Scheme")
+            st.caption("This section is kept separate from the student-facing paper so it can be shared only with instructors.")
+            for answer_section in answer_key:
+                st.markdown(f"### {answer_section.get('section_title', answer_section.get('section_id', 'Section'))}")
+                for answer in answer_section.get("answers", []):
+                    qnum = answer.get("question_number", "?")
+                    marks = answer.get("marks", "")
+                    st.markdown(f"**Q{qnum}** · {marks} marks")
+                    render_content_with_formatting(str(answer.get("answer", "")), "Long Answer")
+                    if answer.get("marking_scheme"):
+                        with st.expander(f"Marking scheme — Q{qnum}"):
+                            render_content_with_formatting(str(answer["marking_scheme"]), "Long Answer")
+                    if answer.get("explanation"):
+                        with st.expander(f"Explanation — Q{qnum}"):
+                            render_content_with_formatting(str(answer["explanation"]), "Long Answer")
+
         # Summary statistics
         st.divider()
         st.markdown("### 📊 Paper Summary")
@@ -2558,6 +2644,17 @@ with tab2:
                 export_content += "]\n\n"
         
         export_content += "\n" + "=" * 60 + "\n"
+        export_content += "ANSWER KEY\n"
+        export_content += "-" * 50 + "\n"
+        for answer_section in paper.get("answer_key", []):
+            export_content += f"{answer_section.get('section_title', answer_section.get('section_id', 'SECTION'))}\n"
+            for answer in answer_section.get("answers", []):
+                export_content += f"Q{answer.get('question_number', '?')}. {answer.get('answer', '')} [Marks: {answer.get('marks', 'N/A')}]\n"
+                if answer.get('marking_scheme'):
+                    export_content += f"Marking scheme: {answer.get('marking_scheme')}\n"
+                if answer.get('explanation'):
+                    export_content += f"Explanation: {answer.get('explanation')}\n"
+            export_content += "\n"
         export_content += f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         export_content += "=" * 60
         
@@ -2583,18 +2680,55 @@ with tab2:
                 st.text_area("Paper Content", export_content, height=200, key="export_textarea")
         
         with col3:
-            # PDF Export (simplified)
-            if st.button("🖨️ Generate PDF Preview", use_container_width=True):
-                st.info("PDF generation would require additional setup.")
-                st.markdown("""
-                **For PDF export, you would need:**
-                1. Install `reportlab` or `fpdf`
-                2. Create a PDF generation function
-                3. Format content with proper styling
-                
-                Currently exporting as text file.
-                """)
-        
+            try:
+                client = st.session_state.api_client
+                pdf_bytes = client.export_paper(paper, "pdf", include_answers=False)
+                st.download_button("🖨️ Student PDF", data=pdf_bytes, file_name=f"{paper.get('exam_name','paper').replace(' ','_')}_student.pdf", mime="application/pdf", use_container_width=True)
+                teacher_pdf = client.export_paper(paper, "pdf", include_answers=True)
+                st.download_button("🔑 Teacher PDF", data=teacher_pdf, file_name=f"{paper.get('exam_name','paper').replace(' ','_')}_teacher.pdf", mime="application/pdf", use_container_width=True)
+                docx_bytes = client.export_paper(paper, "docx", include_answers=False)
+                st.download_button("📝 Editable DOCX", data=docx_bytes, file_name=f"{paper.get('exam_name','paper').replace(' ','_')}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+            except Exception as exc:
+                st.warning(f"Professional export unavailable: {exc}")
+
+        # ==================== QUALITY GATE ====================
+        quality = paper.get("quality_results", {})
+        if quality:
+            st.divider()
+            score = quality.get("overall_score", 0)
+            st.markdown("### 🛡️ AI Quality Gate")
+            st.metric("Paper quality score", f"{score}/100")
+            if quality.get("passed"):
+                st.success("Quality checks passed. Review the flagged items below before publishing.")
+            else:
+                st.warning(f"Quality gate found {quality.get('issues_count', 0)} issue(s). Review before publishing.")
+            reports = quality.get("question_reports", [])
+            flagged = [(i + 1, r) for i, r in enumerate(reports) if r.get("issues")]
+            if flagged:
+                with st.expander("Review flagged questions", expanded=False):
+                    for qnum, report in flagged:
+                        st.markdown(f"**Question {qnum} — {report.get('score', 0)}/100**")
+                        for issue in report.get("issues", []):
+                            st.write(f"• {issue}")
+
+        # ==================== QUESTION BANK ====================
+        if st.session_state.get("api_client"):
+            with st.expander("📚 Save generated questions to Question Bank"):
+                st.caption("Questions are stored locally in the configured SQLite question bank. You can search them later or reuse them in future papers.")
+                if st.button("Save all questions", use_container_width=True):
+                    saved = 0
+                    for section in sections:
+                        for q in section.get("questions", []):
+                            try:
+                                payload_q = dict(q)
+                                payload_q["question_text"] = payload_q.get("question", payload_q.get("question_text", ""))
+                                payload_q["question_type"] = payload_q.get("type", section.get("question_type", ""))
+                                st.session_state.api_client.save_question_to_bank(payload_q, paper.get("topic", ""))
+                                saved += 1
+                            except Exception as exc:
+                                logger.warning("Question bank save failed: %s", exc)
+                    st.success(f"Saved {saved} question(s) to the bank.")
+
         # ==================== TEACHER MODE TOGGLE ====================
         st.divider()
         with st.expander("👨‍🏫 Teacher Options"):
@@ -4122,6 +4256,95 @@ You can view the complete question with options and answer in the "Generated Que
         
         The AI will generate questions calibrated to your selected cognitive level!
         """)
+
+
+# ============================================================================
+# TAB 5: PAPER EVALUATION
+# ============================================================================
+with tab5:
+    display_header("🧾 Evaluate Paper", "Enter student answers and receive marks, feedback and a teacher report")
+    generated_paper = st.session_state.get("generated_paper") or {}
+    if not generated_paper:
+        st.info("### No generated paper is available yet\nGenerate a question paper in the **📄 Question Paper** tab first. Once it is generated, its answer key and marking scheme will automatically be available here.")
+    else:
+        answer_key = generated_paper.get("answer_key") or []
+        paper_sections = generated_paper.get("sections") or []
+        question_rows = []
+        for section in paper_sections:
+            for q in section.get("questions", []) or []:
+                qnum = str(q.get("question_number", ""))
+                if qnum:
+                    question_rows.append((qnum, q, section.get("title", "Section")))
+        if not answer_key:
+            st.warning("⚠️ This paper does not contain an answer key. Generate a new paper with the current version so the evaluation engine can grade it.")
+        elif not question_rows:
+            st.warning("⚠️ The generated paper contains no evaluable questions.")
+        else:
+            st.success(f"✅ Paper loaded: **{generated_paper.get('exam_name', generated_paper.get('title', 'Generated Paper'))}** · {len(question_rows)} questions · {generated_paper.get('total_marks', '—')} marks")
+            student_name = st.text_input("👤 Student Name", value="Student", key="evaluation_student_name")
+            st.markdown("### ✍️ Student Answers")
+            st.caption("Enter the student's answers below. Objective questions are graded deterministically; subjective answers are evaluated against the generated marking scheme when Gemini evaluation is enabled.")
+            answers = {}
+            for qnum, q, section_title in question_rows:
+                marks = q.get("marks", "")
+                qtext = q.get("question", q.get("question_text", ""))
+                qtype = q.get("type", q.get("question_type", ""))
+                with st.container(border=True):
+                    st.markdown(f"**Q{qnum} · {qtype} · {marks} marks**")
+                    st.markdown(render_latex_text(str(qtext)))
+                    options = q.get("options") or []
+                    if options:
+                        for idx, option in enumerate(options):
+                            st.markdown(f"**{chr(65+idx)}.** {render_latex_text(str(option))}")
+                    answers[qnum] = st.text_area(f"Student answer — Q{qnum}", key=f"evaluation_answer_{qnum}", height=90 if str(qtype).lower() not in {"multiple choice", "true/false", "fill in the blank"} else 55, label_visibility="collapsed", placeholder="Enter the student's answer…")
+            c1, c2 = st.columns(2)
+            with c1:
+                evaluate_clicked = st.button("🧠 Evaluate Paper", type="primary", use_container_width=True)
+            with c2:
+                clear_clicked = st.button("🧹 Clear Answers", use_container_width=True)
+            if clear_clicked:
+                for qnum, _, _ in question_rows:
+                    st.session_state.pop(f"evaluation_answer_{qnum}", None)
+                st.session_state.pop("evaluation_result", None)
+                st.rerun()
+            if evaluate_clicked:
+                with st.spinner("Evaluating paper… checking objective answers and evaluating subjective responses with the configured rubric…"):
+                    try:
+                        result = st.session_state.api_client.evaluate_paper(generated_paper, answers, student_name=student_name.strip() or "Student")
+                        st.session_state.evaluation_result = result
+                    except Exception as exc:
+                        st.error(f"❌ Evaluation failed: {exc}")
+            result = st.session_state.get("evaluation_result")
+            if result:
+                st.divider()
+                st.markdown("## 📊 Evaluation Result")
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Marks", f"{result.get('awarded_marks', 0)} / {result.get('total_marks', 0)}")
+                m2.metric("Percentage", f"{result.get('percentage', 0)}%")
+                m3.metric("Grade", result.get("grade", "—"))
+                m4.metric("Result", "PASS ✅" if result.get("passed") else "FAIL ❌")
+                summary = result.get("summary") or {}
+                st.caption(f"Graded: {summary.get('graded_questions', 0)} · AI evaluated: {summary.get('ai_evaluated', 0)} · Manual review: {summary.get('manual_review', 0)} · Pass mark: {summary.get('pass_percent', 40)}%")
+                st.markdown("### 📝 Question-wise Evaluation")
+                for item in result.get("results", []) or []:
+                    qn = item.get("question_number", "")
+                    awarded = item.get("awarded_marks", 0)
+                    maximum = item.get("max_marks", 0)
+                    with st.expander(f"Q{qn} — {awarded}/{maximum} marks", expanded=False):
+                        st.markdown(render_latex_text(str(item.get("question", ""))))
+                        st.markdown(f"**Student answer:** {item.get('student_answer') or 'No answer provided.'}")
+                        st.markdown(f"**Expected answer:** {item.get('expected_answer') or 'See marking scheme.'}")
+                        st.info(f"**Feedback:** {item.get('feedback', '')}")
+                        if item.get("strengths"):
+                            st.markdown("**Strengths:** " + ", ".join(map(str, item.get("strengths"))))
+                        if item.get("missing_points"):
+                            st.markdown("**Missing points:** " + ", ".join(map(str, item.get("missing_points"))))
+                        st.caption(f"Evaluation method: {item.get('method', 'unknown')}")
+                try:
+                    pdf_bytes = st.session_state.api_client.export_evaluation_pdf(result)
+                    st.download_button("📄 Download Evaluation Report PDF", data=pdf_bytes, file_name=f"{student_name.strip() or 'Student'}_evaluation_report.pdf", mime="application/pdf", use_container_width=True)
+                except Exception as exc:
+                    st.warning(f"Evaluation completed, but the PDF report could not be generated: {exc}")
 
 if __name__ == "__main__":
     pass

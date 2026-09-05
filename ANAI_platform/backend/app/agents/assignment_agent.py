@@ -141,9 +141,7 @@ class AssignmentGenerationAgent:
                 
         except Exception as e:
             logger.error(f"Error calling LLM: {str(e)}", exc_info=True)
-            # Fallback to mock response for testing
-            logger.warning("Using mock response due to LLM error")
-            return self._get_mock_response(prompt)
+            raise
 
     def _build_assignment_prompt(
         self, 
@@ -445,80 +443,3 @@ Ensure all tasks are appropriately calibrated to their assigned Bloom's taxonomy
                 task['test_cases'] = task.get('test_cases', [])
 
         return {'tasks': tasks}
-
-    def _get_mock_response(self, prompt: str) -> str:
-        """
-        Get mock response for testing.
-
-        Args:
-            prompt: Input prompt (unused but kept for interface consistency)
-
-        Returns:
-            str: Mock response
-        """
-        return json.dumps({
-            "tasks": [
-                {
-                    "task_id": "task_1",
-                    "title": "Implement Linear Regression",
-                    "description": "Implement linear regression from scratch using numpy",
-                    "points": 20,
-                    "bloom_level": "Apply",
-                    "requirements": [
-                        "Implement gradient descent",
-                        "Add regularization",
-                        "Plot convergence"
-                    ],
-                    "hints": [
-                        "Use numpy for matrix operations",
-                        "Remember to add bias term"
-                    ],
-                    "expected_output": "Model with < 0.1 MSE on test data",
-                    "starter_code": "import numpy as np\n\nclass LinearRegression:\n    def __init__(self, learning_rate=0.01, epochs=1000):\n        pass",
-                    "solution_code": "import numpy as np\n\nclass LinearRegression:\n    def __init__(self, learning_rate=0.01, epochs=1000):\n        self.lr = learning_rate\n        self.epochs = epochs\n        self.weights = None\n        self.bias = None\n    \n    def fit(self, X, y):\n        n_samples, n_features = X.shape\n        self.weights = np.zeros(n_features)\n        self.bias = 0\n        \n        for _ in range(self.epochs):\n            y_pred = np.dot(X, self.weights) + self.bias\n            dw = (1/n_samples) * np.dot(X.T, (y_pred - y))\n            db = (1/n_samples) * np.sum(y_pred - y)\n            \n            self.weights -= self.lr * dw\n            self.bias -= self.lr * db",
-                    "test_cases": [
-                        "Test with simple linear data",
-                        "Test with multiple features"
-                    ]
-                }
-            ],
-            "submission_guidelines": [
-                "Submit a single Jupyter notebook",
-                "Include all code and explanations",
-                "Add comments to your code"
-            ],
-            "evaluation_criteria": [
-                {
-                    "criterion": "Correctness",
-                    "weight": 0.4,
-                    "description": "Implementation works correctly",
-                    "bloom_level": "Apply"
-                },
-                {
-                    "criterion": "Code Quality",
-                    "weight": 0.3,
-                    "description": "Code is well-structured and documented",
-                    "bloom_level": "Understand"
-                },
-                {
-                    "criterion": "Analysis",
-                    "weight": 0.3,
-                    "description": "Results are properly analyzed",
-                    "bloom_level": "Analyze"
-                }
-            ],
-            "learning_objectives": [
-                "Understand linear regression mathematics",
-                "Implement gradient descent from scratch",
-                "Evaluate model performance"
-            ],
-            "generated_files": [
-                {
-                    "filename": "linear_regression.py",
-                    "content": "# Linear regression implementation",
-                    "file_type": "code",
-                    "language": "python",
-                    "description": "Main implementation file"
-                }
-            ]
-        })
